@@ -47,9 +47,7 @@ newWindow name = do
 
 
 renderObject :: Bool -> Object -> Widget a
-renderObject bool object = padRight Max body
-        where
-                body = str $ object^.name
+renderObject bool object = padRight Max (str $ object^.name)
 
 
 renderWindow :: (Show a,Ord a) => Window a -> Widget a
