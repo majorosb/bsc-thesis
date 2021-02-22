@@ -1,4 +1,11 @@
-module Widgets.Object where
+{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+module Object where
 
 import Control.Lens
 import Data.Maybe 
@@ -10,7 +17,7 @@ import Data.Time.Clock
 
 data Object = Object { _name :: String,
                        _path :: FilePath,
-                       _type :: FileType,
+                       _filetype :: FileType,
                        _info :: Info 
                      } 
 
@@ -19,17 +26,19 @@ data FileType = File | SymbolicLink | Directory
  deriving (Bounded, Enum, Eq, Ord, Read, Show)
 
 instance Show Object where
-        show Object{_name = name, _type = t, _path = path} =
+        show Object{_name = name, _filetype = t, _path = path} =
                 case t of 
                  File         -> "- " ++ name 
                  Directory    -> "+ " ++ name
                  SymbolicLink -> "- " ++ name
 
 data Info = Info { _size       :: Integer,
-                   _permission :: Either SomeException Dir.Permissions,
-                   _acctime    :: Either SomeException UTCTime,
-                   _modtime    :: Either SomeException UTCTime
+                   _permission :: Dir.Permissions,
+                   _acctime    :: UTCTime,
+                   _modtime    :: UTCTime
                  } deriving(Show)
+
+makeLenses ''Object
 
 getFile :: FilePath -> IO Object     -- Maybe Object would be better?
 getFile f = do
@@ -50,9 +59,9 @@ getFiles path = do
 getInfo :: FilePath -> IO Info 
 getInfo fileName = do
         size    <- Dir.getFileSize fileName 
-        perm    <- try $ Dir.getPermissions fileName
-        acctime <- try $ getTimeStampAcc fileName
-        modtime <- try $ getTimeStampMod fileName
+        perm    <- Dir.getPermissions fileName
+        acctime <- getTimeStampAcc fileName
+        modtime <- getTimeStampMod fileName
         return $ Info size perm acctime modtime
 
 getTimeStampAcc :: FilePath -> IO UTCTime
