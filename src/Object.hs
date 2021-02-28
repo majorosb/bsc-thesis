@@ -1,19 +1,15 @@
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 module Object where
 
 import Control.Lens
-import Data.Maybe 
-import qualified System.FilePath as FP
 import qualified System.Directory as Dir
-import Control.Exception
-import Brick.Types
+import qualified Brick.AttrMap as A
+import Brick.Widgets.List (listAttr)
 import Data.Time.Clock
+import Data.Time.Calendar.OrdinalDate
+import Control.Exception
 
 data Object = Object { _name :: String,
                        _path :: FilePath,
@@ -36,33 +32,37 @@ data Info = Info { _size       :: Integer,
                    _permission :: Dir.Permissions,
                    _acctime    :: UTCTime,
                    _modtime    :: UTCTime
-                 } deriving(Show)
+                 } | Fail deriving(Show)
 
 makeLenses ''Object
 
+
 getFile :: FilePath -> IO Object     -- Maybe Object would be better?
 getFile f = do
-        info   <- getInfo f
-        isfile <- Dir.doesFileExist f
-        path   <- Dir.makeAbsolute f -- catch exceptions aswell
+        fileInfo   <- getInfo f
+        isfile     <- Dir.doesFileExist f
+        filePath   <- Dir.makeAbsolute f -- catch exceptions aswell
         case isfile of
-         True  -> return $ Object f path File info
-         False -> return $ Object f path Directory info
+         True  -> return $ Object f filePath File fileInfo
+         False -> return $ Object f filePath Directory fileInfo
 
 getFiles :: FilePath -> IO [Object]
-getFiles path = do
-        objects <- Dir.listDirectory path
+getFiles filePath = do
+        objects <- Dir.listDirectory filePath
         mapM getFile objects
         
 
 
 getInfo :: FilePath -> IO Info 
-getInfo fileName = do
+getInfo fileName = handle errorHandler $ do
         size    <- Dir.getFileSize fileName 
         perm    <- Dir.getPermissions fileName
         acctime <- getTimeStampAcc fileName
         modtime <- getTimeStampMod fileName
         return $ Info size perm acctime modtime
+        where 
+                errorHandler :: SomeException -> IO Info
+                errorHandler _ = return Fail
 
 getTimeStampAcc :: FilePath -> IO UTCTime
 getTimeStampAcc fileName = do
@@ -73,3 +73,10 @@ getTimeStampMod :: FilePath -> IO UTCTime
 getTimeStampMod fileName = do
         modTime <- Dir.getModificationTime fileName
         return modTime
+
+baseAttr :: A.AttrName
+baseAttr = listAttr <> A.attrName "window"
+
+fileTypeToAttr :: FileType -> A.AttrName
+fileTypeToAttr File      =  baseAttr <> A.attrName "file"
+fileTypeToAttr Directory =  baseAttr <> A.attrName "dir"

@@ -1,60 +1,74 @@
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Window
         where   
 import qualified Graphics.Vty as Vty
-import qualified System.Directory as Dir
-import qualified System.FilePath as FP
 import qualified Control.Exception as E
 import qualified Data.Vector as V
-
-import Brick.Types
-import Brick.AttrMap (AttrName)
-import Brick.Widgets.Core
-import Brick.Widgets.List
+import qualified System.Directory as Dir
 
 import Object 
-import Control.Lens
-import Data.Set as Set
+import Brick.Types
+import Brick.Widgets.Core
 import Brick.Widgets.List
+import Control.Lens
+import Control.Monad.IO.Class
+-- Todo: handle exceptions when changing dirs
 
-
-
-data Window n =
+data Window a =
         Window { _currentDir :: FilePath
-               , _objects :: List n Object
+               , _objects :: List a Object
                           -- ^ This module provides a scrollable list type and functions for manipulating and rendering it. 
-               , _windowName :: n
-               , _selectedObjects :: [Object]
-               , _currSelectedObject :: Object
+               , _windowName :: a
                , _windowException :: Maybe E.IOException
                } 
 makeLenses ''Window
 
+newWindow :: a -> FilePath  ->  IO (Window a)
+newWindow resourceName dir = do
+     objectStrings <- getFiles dir
+     let brickList = list resourceName (V.fromList objectStrings) 1
+     return $ Window dir brickList resourceName Nothing
 
-
-newWindow :: a ->  IO (Window a)
-newWindow name = do
-        objects <- getFiles "."
-        let brickList = list name (V.fromList objects) 1
-        return $ Window "." brickList name [] (head objects) Nothing
+changeDir ::  FilePath -> Window a -> IO (Window a) 
+changeDir newDir window = do
+     dirExists <- Dir.doesDirectoryExist newDir
+     if dirExists then do
+          Dir.setCurrentDirectory newDir 
+          currDir    <-  Dir.getCurrentDirectory 
+          newObjects <- getFiles currDir
+          let brickList = list (window^.windowName) (V.fromList newObjects ) 1
+          return $ window & currentDir .~ newDir & objects .~ brickList
+     else return $ window
 
 
 renderObject :: Bool -> Object -> Widget a
-renderObject bool object = padRight Max (str $ object^.name)
-
+renderObject _ object = case object^.filetype of
+     Directory -> padRight Max (str $ object^.name ++ "/")
+     _         -> padRight Max (str $ object^.name)
 
 renderWindow :: (Show a,Ord a) => Window a -> Widget a
 renderWindow window = vBox [ renderList renderObject True (window^.objects) ]
 
-handleWindowEvent :: (Ord n) => Vty.Event -> Window n -> EventM n (Window n)
-handleWindowEvent event window = do 
-        h <- handleListEventVi (handleListEvent) event (window^.objects)
-        return $ set (objects) h window
+handleWindowEvent :: (Ord a) => Vty.Event -> Window a -> EventM a (Window a)
+handleWindowEvent event window =  case event of
+     Vty.EvKey (Vty.KChar 'l')  []  -> handleChangeDirForward window 
+     Vty.EvKey (Vty.KChar 'h')  []  -> handleChangeDirBackward window
+     _                              -> do
+         h <- handleListEventVi (handleListEvent) event (window^.objects) -- for characters h j k l g G
+         return $ set (objects) h window
+
+handleChangeDirForward :: (Ord a) => Window a -> EventM a (Window a)
+handleChangeDirForward window = case listSelectedElement (window^.objects) of
+     Just (_ , obj) -> case obj^.filetype of 
+              Directory -> liftIO $ changeDir (obj^.path) window
+              _         -> return window
+     Nothing        -> return window 
+
+handleChangeDirBackward :: (Ord a) => Window a -> EventM a (Window a)
+handleChangeDirBackward = liftIO . changeDir ".."
+ 
+
 
