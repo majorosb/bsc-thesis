@@ -1,5 +1,6 @@
 module Main where
 import Window as W
+import Browser as B
 
 import qualified Graphics.Vty as V
 import qualified Brick.Main as M
@@ -15,26 +16,23 @@ import Brick.Util
 import Object
 
 
-drawUI :: Window Int -> [Widget Int]
-drawUI window = pure $ withDefAttr baseAttr $ vBox [ hCenter $ W.renderWindow window]
+drawUI :: Browser Int -> [Widget Int]
+drawUI browser= pure $ withDefAttr baseAttr $
+        vBox [ hCenter $ B.renderBrowser browser]
 
-statusLine ::  String ->  Widget Int
-statusLine s = vLimit 1 $ str s
-
-
-appEvent :: Window Int -> BrickEvent Int e -> T.EventM Int (T.Next (Window Int))
-appEvent window (VtyEvent ev) =
+appEvent :: Browser Int -> BrickEvent Int e -> T.EventM Int (T.Next (Browser Int))
+appEvent browser (VtyEvent ev) =
         case ev of
-          V.EvKey V.KEsc [] -> M.halt window
+          V.EvKey V.KEsc [] -> M.halt browser
           _ -> do 
-                  newWindow <- W.handleWindowEvent ev window
-                  M.continue newWindow
+                  newBrowser <- B.handleBrowserEvent ev browser 
+                  M.continue newBrowser
 --                  case (newWindow^.windowException) of
 --                    Just e  -> handleIOException e newWindow
 --                    Nothing -> M.continue newWindow
-appEvent window _ =  M.continue window
+appEvent browser _ =  M.continue browser 
 
-theApp :: M.App (Window Int) e Int
+theApp :: M.App (Browser Int) e Int
 theApp = M.App {
                 M.appDraw = drawUI,
                 M.appChooseCursor = M.showFirstCursor,
@@ -52,6 +50,7 @@ theMap = A.attrMap V.defAttr
 
 main :: IO ()
 main = do
-        b <- M.defaultMain theApp =<< W.newWindow 1 "."
+        newWindow <- W.newWindow 2 "."
+        b <- M.defaultMain theApp =<< B.newBrowser 1 newWindow
         putStrLn "Program exited"
         
