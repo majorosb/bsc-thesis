@@ -33,22 +33,27 @@ newWindow resourceName dir = do
      return $ Window dir brickList resourceName Nothing
 
 changeDir ::  FilePath -> Window a -> IO (Window a) 
-changeDir newDir window = do
-     dirExists <- Dir.doesDirectoryExist newDir
-     if dirExists then do
-          Dir.setCurrentDirectory newDir 
-          currDir    <-  Dir.getCurrentDirectory 
-          newObjects <- getFiles currDir
-          let brickList = list (window^.windowName) (V.fromList newObjects ) 1
-          return $ window & currentDir .~ newDir & objects .~ brickList
-     else return $ window
-
+changeDir newDir window = E.catch go (raiseExceptionInWindow window)
+        where
+         go = do
+           dirExists <- Dir.doesDirectoryExist newDir
+           if dirExists then do
+             Dir.setCurrentDirectory newDir 
+             currDir    <- Dir.getCurrentDirectory 
+             newObjects <- getFiles currDir
+             let brickList = list (window^.windowName) (V.fromList newObjects ) 1
+             return $ 
+               window & currentDir .~ newDir &
+               objects .~ brickList & windowException .~ Nothing
+           else return $ window
 
 renderObject :: Bool -> Object -> Widget a
 renderObject _ object = case object^.filetype of
      Directory -> padRight Max (str $ object^.name ++ "/")
      _         -> padRight Max (str $ object^.name)
 
+raiseExceptionInWindow :: Window a -> IOError -> IO (Window a)
+raiseExceptionInWindow window e = return $ window & windowException .~ (Just e)
 renderWindow :: (Show a,Ord a) => Window a -> Widget a
 renderWindow window = vBox [ renderList renderObject True (window^.objects) ]
 
@@ -70,5 +75,3 @@ handleChangeDirForward window = case listSelectedElement (window^.objects) of
 handleChangeDirBackward :: (Ord a) => Window a -> EventM a (Window a)
 handleChangeDirBackward = liftIO . changeDir ".."
  
-
-
