@@ -18,10 +18,10 @@ import Control.Monad.IO.Class
 -- Todo: handle exceptions when changing dirs
 
 data Window a =
-        Window { _currentDir :: FilePath
-               , _objects :: List a Object
+        Window { _currentDir      :: FilePath
+               , _objects         :: List a Object
                           -- ^ This module provides a scrollable list type and functions for manipulating and rendering it. 
-               , _windowName :: a
+               , _windowName      :: a
                , _windowException :: Maybe E.IOException
                } 
 makeLenses ''Window
@@ -47,13 +47,22 @@ changeDir newDir window = E.catch go (raiseExceptionInWindow window)
                objects .~ brickList & windowException .~ Nothing
            else return $ window
 
+addIsSelected :: Object -> String
+addIsSelected object = if object^.isSelected then "+ " else ""
+
 renderObject :: Bool -> Object -> Widget a
 renderObject _ object = case object^.filetype of
-     Directory -> padRight Max (str $ object^.name ++ "/")
-     _         -> padRight Max (str $ object^.name)
+     Directory -> padRight Max (str $  addIsSelected object ++ object^.name ++ "/")
+     _         -> padRight Max (str $  addIsSelected object ++ object^.name) 
+                 <+> padLeft Max (str $ fileInfo)
+        where
+                fileInfo = case object^.info of
+                             Just inf -> show inf
+                             Nothing  -> "N/A"
 
 raiseExceptionInWindow :: Window a -> IOError -> IO (Window a)
 raiseExceptionInWindow window e = return $ window & windowException .~ (Just e)
+
 renderWindow :: (Show a,Ord a) => Window a -> Widget a
 renderWindow window = vBox [ renderList renderObject True (window^.objects) ]
 
@@ -61,9 +70,16 @@ handleWindowEvent :: (Ord a) => Vty.Event -> Window a -> EventM a (Window a)
 handleWindowEvent event window =  case event of
      Vty.EvKey (Vty.KChar 'l')  []  -> handleChangeDirForward window 
      Vty.EvKey (Vty.KChar 'h')  []  -> handleChangeDirBackward window
+     Vty.EvKey (Vty.KChar 's')  []  -> handleSelect window
      _                              -> do
-         h <- handleListEventVi (handleListEvent) event (window^.objects) -- for characters h j k l g G
+         h <- handleListEventVi (handleListEvent) event (window^.objects) -- for characters j k g G
          return $ set (objects) h window
+
+handleSelect :: (Ord a) => Window a -> EventM a (Window a)
+handleSelect window = case listSelectedElement (window^.objects) of 
+                        Just (_,obj) -> return $ window & objects.~(listModify selectObject (window^.objects))
+                        Nothing      -> return window 
+
 
 handleChangeDirForward :: (Ord a) => Window a -> EventM a (Window a)
 handleChangeDirForward window = case listSelectedElement (window^.objects) of
@@ -75,3 +91,7 @@ handleChangeDirForward window = case listSelectedElement (window^.objects) of
 handleChangeDirBackward :: (Ord a) => Window a -> EventM a (Window a)
 handleChangeDirBackward = liftIO . changeDir ".."
  
+selectObject :: Object -> Object
+selectObject object = if object^.isSelected 
+                         then object & isSelected.~False 
+                         else object & isSelected.~True

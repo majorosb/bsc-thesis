@@ -11,10 +11,11 @@ import Data.Time.Clock
 import Data.Time.Calendar.OrdinalDate
 import Control.Exception
 
-data Object = Object { _name :: String,
-                       _path :: FilePath,
-                       _filetype :: FileType,
-                       _info :: Info 
+data Object = Object { _name       :: String,
+                       _path       :: FilePath,
+                       _filetype   :: FileType,
+                       _isSelected :: Bool,
+                       _info       :: Maybe Info 
                      } 
 
 data FileType = File | SymbolicLink | Directory
@@ -32,7 +33,19 @@ data Info = Info { _size       :: Integer,
                    _permission :: Dir.Permissions,
                    _acctime    :: UTCTime,
                    _modtime    :: UTCTime
-                 } | Fail deriving(Show)
+                 }
+
+permissionS :: Dir.Permissions -> String
+permissionS p = [ 
+                if Dir.readable p   then 'r' else '-',
+                if Dir.writable p   then 'w' else '-',
+                if Dir.executable p then 'x' else '-',
+                if Dir.searchable p then 's' else '-'
+                ]
+
+instance Show Info where
+        show Info {_size = s, _permission = p} = 
+                   show s ++ " " ++ permissionS p
 
 makeLenses ''Object
 
@@ -43,26 +56,24 @@ getFile f = do
         isfile     <- Dir.doesFileExist f
         filePath   <- Dir.makeAbsolute f -- catch exceptions aswell
         case isfile of
-         True  -> return $ Object f filePath File fileInfo
-         False -> return $ Object f filePath Directory fileInfo
+         True  -> return $ Object f filePath File False fileInfo
+         False -> return $ Object f filePath Directory False fileInfo
 
 getFiles :: FilePath -> IO [Object]
 getFiles filePath = do
         objects <- Dir.listDirectory filePath
         mapM getFile objects
-        
 
-
-getInfo :: FilePath -> IO Info 
+getInfo :: FilePath -> IO (Maybe Info)
 getInfo fileName = handle errorHandler $ do
         size    <- Dir.getFileSize fileName 
         perm    <- Dir.getPermissions fileName
         acctime <- getTimeStampAcc fileName
         modtime <- getTimeStampMod fileName
-        return $ Info size perm acctime modtime
+        return $ Just $ Info size perm acctime modtime
         where 
-                errorHandler :: SomeException -> IO Info
-                errorHandler _ = return Fail
+                errorHandler :: SomeException -> IO (Maybe Info)
+                errorHandler _ = return Nothing
 
 getTimeStampAcc :: FilePath -> IO UTCTime
 getTimeStampAcc fileName = do
@@ -80,3 +91,4 @@ baseAttr = listAttr <> A.attrName "window"
 fileTypeToAttr :: FileType -> A.AttrName
 fileTypeToAttr File      =  baseAttr <> A.attrName "file"
 fileTypeToAttr Directory =  baseAttr <> A.attrName "dir"
+

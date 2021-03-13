@@ -14,6 +14,8 @@ import Brick.Widgets.Core
 import Brick.Widgets.Center
 import Brick.Util
 import Object
+import System.Exit
+import Control.Monad.IO.Class
 
 
 drawUI :: Browser Int -> [Widget Int]
@@ -23,7 +25,7 @@ drawUI browser= pure $ withDefAttr baseAttr $
 appEvent :: Browser Int -> BrickEvent Int e -> T.EventM Int (T.Next (Browser Int))
 appEvent browser (VtyEvent ev) =
         case ev of
-          V.EvKey V.KEsc [] -> M.halt browser
+          V.EvKey V.KEnd [] -> liftIO $ exitSuccess
           _ -> do 
                   newBrowser <- B.handleBrowserEvent ev browser 
                   M.continue newBrowser
