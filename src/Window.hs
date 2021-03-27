@@ -17,22 +17,25 @@ import Control.Lens
 import Control.Monad.IO.Class
 -- Todo: handle exceptions when changing dirs
 
-data Window a =
+data Name = TabName String | Workspace String | EditName String | WindowName Int | BrowserName String 
+        deriving (Eq,Ord,Show)
+
+data Window =
         Window { _currentDir      :: FilePath
-               , _objects         :: List a Object
+               , _objects         :: List Name Object
                           -- ^ This module provides a scrollable list type and functions for manipulating and rendering it. 
-               , _windowName      :: a
+               , _windowName      :: Name
                , _windowException :: Maybe E.IOException
                } 
 makeLenses ''Window
 
-newWindow :: a -> FilePath  ->  IO (Window a)
+newWindow :: Name -> FilePath  ->  IO Window
 newWindow resourceName dir = do
      objectStrings <- getFiles dir
      let brickList = list resourceName (V.fromList objectStrings) 1
      return $ Window dir brickList resourceName Nothing
 
-changeDir ::  FilePath -> Window a -> IO (Window a) 
+changeDir ::  FilePath -> Window -> IO Window  
 changeDir newDir window = E.catch go (raiseExceptionInWindow window)
         where
          go = do
@@ -50,7 +53,7 @@ changeDir newDir window = E.catch go (raiseExceptionInWindow window)
 addIsSelected :: Object -> String
 addIsSelected object = if object^.isSelected then "+ " else ""
 
-renderObject :: Bool -> Object -> Widget a
+renderObject :: Bool -> Object -> Widget Name
 renderObject _ object = case object^.filetype of
      Directory -> padRight Max (str $  addIsSelected object ++ object^.name ++ "/")
      _         -> padRight Max (str $  addIsSelected object ++ object^.name) 
@@ -60,13 +63,13 @@ renderObject _ object = case object^.filetype of
                              Just inf -> show inf
                              Nothing  -> "N/A"
 
-raiseExceptionInWindow :: Window a -> IOError -> IO (Window a)
+raiseExceptionInWindow :: Window -> IOError -> IO Window
 raiseExceptionInWindow window e = return $ window & windowException .~ (Just e)
 
-renderWindow :: (Show a,Ord a) => Window a -> Widget a
-renderWindow window = vBox [ renderList renderObject True (window^.objects) ]
+renderWindow ::  Window -> Widget Name
+renderWindow window = renderList renderObject True (window^.objects) 
 
-handleWindowEvent :: (Ord a) => Vty.Event -> Window a -> EventM a (Window a)
+handleWindowEvent ::  Vty.Event -> Window -> EventM Name Window
 handleWindowEvent event window =  case event of
      Vty.EvKey (Vty.KChar 'l')  []  -> handleChangeDirForward window 
      Vty.EvKey (Vty.KChar 'h')  []  -> handleChangeDirBackward window
@@ -75,20 +78,20 @@ handleWindowEvent event window =  case event of
          h <- handleListEventVi (handleListEvent) event (window^.objects) -- for characters j k g G
          return $ set (objects) h window
 
-handleSelect :: (Ord a) => Window a -> EventM a (Window a)
+handleSelect ::  Window -> EventM Name Window 
 handleSelect window = case listSelectedElement (window^.objects) of 
                         Just (_,obj) -> return $ window & objects.~(listModify selectObject (window^.objects))
                         Nothing      -> return window 
 
 
-handleChangeDirForward :: (Ord a) => Window a -> EventM a (Window a)
+handleChangeDirForward ::  Window -> EventM Name Window
 handleChangeDirForward window = case listSelectedElement (window^.objects) of
      Just (_ , obj) -> case obj^.filetype of 
               Directory -> liftIO $ changeDir (obj^.path) window
               _         -> return window
      Nothing        -> return window 
 
-handleChangeDirBackward :: (Ord a) => Window a -> EventM a (Window a)
+handleChangeDirBackward ::  Window -> EventM Name Window
 handleChangeDirBackward = liftIO . changeDir ".."
  
 selectObject :: Object -> Object

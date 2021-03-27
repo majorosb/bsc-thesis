@@ -17,10 +17,23 @@ data Object = Object { _name       :: String,
                        _isSelected :: Bool,
                        _info       :: Maybe Info 
                      } 
+instance Eq Object where 
+        Object{_filetype = f1} == Object{_filetype = f2} = f1 == f2
 
+instance Ord Object where
+        compare Object{_filetype = f1} Object{ _filetype = f2} = compare f1 f2
+
+data Info = Info     { _size       :: Integer,
+                       _permission :: Dir.Permissions,
+                       _acctime    :: UTCTime,
+                       _modtime    :: UTCTime
+                     }
 data FileType = File | SymbolicLink | Directory
                     -- ^ POSIX: either file or directory link; Windows: file link
  deriving (Bounded, Enum, Eq, Ord, Read, Show)
+
+makeLenses ''Object
+
 
 instance Show Object where
         show Object{_name = name, _filetype = t, _path = path} =
@@ -28,12 +41,6 @@ instance Show Object where
                  File         -> "- " ++ name 
                  Directory    -> "+ " ++ name
                  SymbolicLink -> "- " ++ name
-
-data Info = Info { _size       :: Integer,
-                   _permission :: Dir.Permissions,
-                   _acctime    :: UTCTime,
-                   _modtime    :: UTCTime
-                 }
 
 permissionS :: Dir.Permissions -> String
 permissionS p = [ 
@@ -46,9 +53,6 @@ permissionS p = [
 instance Show Info where
         show Info {_size = s, _permission = p} = 
                    show s ++ " " ++ permissionS p
-
-makeLenses ''Object
-
 
 getFile :: FilePath -> IO Object     -- Maybe Object would be better?
 getFile f = do

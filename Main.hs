@@ -1,12 +1,14 @@
 module Main where
 import Window as W
 import Browser as B
+import Tabs
 
 import qualified Graphics.Vty as V
 import qualified Brick.Main as M
 import qualified Brick.Widgets.List as L
 import qualified Brick.AttrMap as A
 import qualified Brick.Types as T
+import qualified System.Directory as Dir
 
 import Brick.AttrMap 
 import Brick.Types
@@ -18,11 +20,11 @@ import System.Exit
 import Control.Monad.IO.Class
 
 
-drawUI :: Browser Int -> [Widget Int]
+drawUI :: Browser -> [Widget Name]
 drawUI browser= pure $ withDefAttr baseAttr $
-        vBox [ hCenter $ B.renderBrowser browser]
+        hCenter $ B.renderBrowser browser
 
-appEvent :: Browser Int -> BrickEvent Int e -> T.EventM Int (T.Next (Browser Int))
+appEvent :: Browser -> BrickEvent Name e -> T.EventM Name (T.Next Browser)
 appEvent browser (VtyEvent ev) =
         case ev of
           V.EvKey V.KEnd [] -> liftIO $ exitSuccess
@@ -34,7 +36,7 @@ appEvent browser (VtyEvent ev) =
 --                    Nothing -> M.continue newWindow
 appEvent browser _ =  M.continue browser 
 
-theApp :: M.App (Browser Int) e Int
+theApp :: M.App Browser e Name
 theApp = M.App {
                 M.appDraw = drawUI,
                 M.appChooseCursor = M.showFirstCursor,
@@ -52,7 +54,8 @@ theMap = A.attrMap V.defAttr
 
 main :: IO ()
 main = do
-        newWindow <- W.newWindow 2 "."
-        b <- M.defaultMain theApp =<< B.newBrowser 1 newWindow
+        newWindow <- W.newWindow (WindowName 0) "."
+        dir       <- Dir.getCurrentDirectory
+        b <- M.defaultMain theApp =<< B.newBrowser (BrowserName "Main") (newTab (TabName dir) newWindow)
         putStrLn "Program exited"
         
