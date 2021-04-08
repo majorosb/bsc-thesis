@@ -23,24 +23,25 @@ instance Eq Object where
 instance Ord Object where
         compare Object{_filetype = f1} Object{ _filetype = f2} = compare f1 f2
 
-data Info = Info     { _size       :: Integer,
-                       _permission :: Dir.Permissions,
-                       _acctime    :: UTCTime,
-                       _modtime    :: UTCTime
-                     }
-data FileType = File | SymbolicLink | Directory
-                    -- ^ POSIX: either file or directory link; Windows: file link
- deriving (Bounded, Enum, Eq, Ord, Read, Show)
-
-makeLenses ''Object
-
-
 instance Show Object where
         show Object{_name = name, _filetype = t, _path = path} =
                 case t of 
                  File         -> "- " ++ name 
                  Directory    -> "+ " ++ name
                  SymbolicLink -> "- " ++ name
+
+data Info = Info     { _size       :: Integer,
+                       _permission :: Dir.Permissions,
+                       _acctime    :: UTCTime,
+                       _modtime    :: UTCTime
+                     }
+data FileType =  SymbolicLink | Directory | File 
+                    -- ^ POSIX: either file or directory link; Windows: file link
+ deriving (Bounded, Enum, Eq, Ord, Read, Show)
+
+makeLenses ''Object
+
+
 
 permissionS :: Dir.Permissions -> String
 permissionS p = [ 

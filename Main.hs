@@ -7,11 +7,12 @@ import qualified Graphics.Vty as V
 import qualified Brick.Main as M
 import qualified Brick.Widgets.List as L
 import qualified Brick.AttrMap as A
-import qualified Brick.Types as T
+import qualified Brick.Types 
 import qualified System.Directory as Dir
 
 import Brick.AttrMap 
 import Brick.Types
+import Control.Lens
 import Brick.Widgets.Core
 import Brick.Widgets.Center
 import Brick.Util
@@ -24,8 +25,8 @@ drawUI :: Browser -> [Widget Name]
 drawUI browser= pure $ withDefAttr baseAttr $
         hCenter $ B.renderBrowser browser
 
-appEvent :: Browser -> BrickEvent Name e -> T.EventM Name (T.Next Browser)
-appEvent browser (VtyEvent ev) =
+appEvent :: Browser -> BrickEvent Name e -> EventM Name (Next Browser)
+appEvent browser (VtyEvent ev)    =
         case ev of
           V.EvKey V.KEnd [] -> liftIO $ exitSuccess
           _ -> do 
