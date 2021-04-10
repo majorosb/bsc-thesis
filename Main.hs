@@ -45,12 +45,33 @@ theApp = M.App {
                 M.appStartEvent = return,
                 M.appAttrMap    = const theMap
                }
+fileColor :: V.Color
+fileColor = V.rgbColor 0 95 135
+
+dirColor :: V.Color
+dirColor = V.rgbColor 215 95 0
+
+bgColor :: V.Color
+bgColor = V.rgbColor 238 238 238
+
+tEmptyColor :: V.Color 
+tEmptyColor = V.rgbColor 0 135 175
+
+selectColor :: V.Color 
+selectColor = V.rgbColor 0 135 175
+
+tFocusedColor :: V.Color 
+tFocusedColor = V.rgbColor 188 188 188
 
 theMap :: A.AttrMap
 theMap = A.attrMap V.defAttr 
-        [ (L.listSelectedFocusedAttr, V.white `on` V.yellow),
-          (fileTypeToAttr File, V.white `on` V.red),
-          (fileTypeToAttr Directory, fg V.red)
+        [ (L.listSelectedFocusedAttr, V.white `on` selectColor ),
+          (tEmpty, V.white `on` tEmptyColor),
+          (tFocused, V.white `on` tFocusedColor),
+          (attrFile, fg fileColor),
+          (attrDir, fg dirColor `V.withStyle` V.bold),
+          (fileTypeToAttr Directory, fg V.red),
+          (L.listAttr, bg bgColor)
         ]  
 
 main :: IO ()

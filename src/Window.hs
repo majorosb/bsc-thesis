@@ -66,9 +66,18 @@ addIsSelected :: Object -> String
 addIsSelected object = if object^.isSelected then "+ " else ""
 
 renderObject :: Bool -> Object -> Widget Name
-renderObject _ object = case object^.filetype of
-     Directory -> padRight Max (str $  addIsSelected object ++ object^.name ++ "/")
-     _         -> padRight Max (str $  addIsSelected object ++ object^.name) 
+renderObject True object  = case object^.filetype of
+     Directory -> padRight Max (forceAttr listSelectedFocusedAttr $ str $  addIsSelected object ++ object^.name ++ "/")
+     _         -> padRight Max (forceAttr listSelectedFocusedAttr $ str $  addIsSelected object ++ object^.name) 
+                 <+> padLeft Max (str $ fileInfo)
+        where
+                fileInfo = case object^.info of
+                             Just inf -> show inf
+                             Nothing  -> "N/A"
+
+renderObject False object = case object^.filetype of
+     Directory -> padRight Max (forceAttr attrDir  $ str $  addIsSelected object ++ object^.name ++ "/")
+     _         -> padRight Max (forceAttr attrFile $ str $  addIsSelected object ++ object^.name) 
                  <+> padLeft Max (str $ fileInfo)
         where
                 fileInfo = case object^.info of
@@ -78,8 +87,8 @@ renderObject _ object = case object^.filetype of
 raiseExceptionInWindow :: Window -> IOError -> IO Window
 raiseExceptionInWindow window e = return $ window & windowException .~ (Just e)
 
-renderWindow ::  Window -> Widget Name
-renderWindow window =   vBox [joinBorders $ renderList renderObject True (window^.objects) ]
+renderWindow :: Bool ->  Window -> Widget Name
+renderWindow b window = vBox [joinBorders $ renderList renderObject b (window^.objects) ]
 
 handleWindowEvent ::  Vty.Event -> Window -> EventM Name Window
 handleWindowEvent event window =  case event of

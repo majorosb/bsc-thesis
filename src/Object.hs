@@ -97,3 +97,14 @@ fileTypeToAttr :: FileType -> A.AttrName
 fileTypeToAttr File      =  baseAttr <> A.attrName "file"
 fileTypeToAttr Directory =  baseAttr <> A.attrName "dir"
 
+attrFile :: A.AttrName
+attrFile = A.attrName "file"
+
+attrDir :: A.AttrName
+attrDir = A.attrName "dir"
+
+tEmpty :: A.AttrName
+tEmpty = A.attrName "tempty"
+
+tFocused :: A.AttrName
+tFocused = A.attrName "tfocused"

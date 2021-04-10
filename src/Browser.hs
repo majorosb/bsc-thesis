@@ -70,7 +70,7 @@ statusLineW s = vLimit 1 $ str s
 renderBrowser ::  Browser -> Widget Name
 renderBrowser browser = 
         joinBorders $ vBox 
-             [tabnames
+             [ tabnames
              , joinBorders $ renderTab (focusedTab browser)
              , statusline
              ] where
@@ -80,7 +80,8 @@ renderBrowser browser =
                        else statusLineW sLine
                    sLine = getStatusLine browser                                
                    tabnames  = foldl (<+>) emptyWidget
-                         ((map (\n -> vLimit 1 $ str n <+> vBorder) . collectTabNames) browser)
+                         ((map (renderTabNames focusedTabName ) . collectTabNames) browser)
+                   focusedTabName = getTabName $ focusedTab browser
 --                        showCursor 
 --                        (browser^.browserName)
 --                        (Location (length $ browser^.input,0))
@@ -91,6 +92,11 @@ renderBrowser browser =
 -- until it returns Nothing. handleBrowserEvent will pass the current state and the event parameters to
 -- handleBrowserAction. 
 --
+
+renderTabNames ::  String -> String -> Widget Name
+renderTabNames x x' = if x == x' 
+                        then  withAttr tFocused $ vLimit 1 $ str $ x' ++ " "
+                        else  withAttr tEmpty $ vLimit 1 $ str $ x' ++ " "
 
 handleBrowserAction ::  Vty.Event -> Action -> Browser -> EventM Name (Browser)
 handleBrowserAction e a b =  case a of
@@ -167,6 +173,7 @@ makeNewTabName browser c name  = if elem newName names
 
 
 fromBoard :: Board -> [Object]
+fromBoard Browser.Empty = []
 fromBoard (Clipboard l) = l
 fromBoard (Cutboard  l) = l
 
@@ -177,7 +184,7 @@ handleCopy b = do
      where clip = fromBoard $ b^.clipboard
 
 handleCopyAction :: [Object] -> Browser -> EventM Name (Browser)
-handleCopyAction [] b      = return $ browserReset b
+handleCopyAction [] b      = return $ browserReset b & statusLine.~"Copy complete" 
 handleCopyAction (x:xs) b  = do
         contents <- liftIO $ Dir.getDirectoryContents $ w^.currentDir
         if any (\n -> n == x^.name) contents
