@@ -108,3 +108,12 @@ tEmpty = A.attrName "tempty"
 
 tFocused :: A.AttrName
 tFocused = A.attrName "tfocused"
+
+attrFill :: A.AttrName
+attrFill = A.attrName "fill"
+
+attrSelected :: A.AttrName
+attrSelected = A.attrName "select"
+
+attrStatus :: A.AttrName
+attrStatus = A.attrName "status"

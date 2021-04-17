@@ -7,7 +7,7 @@ module Window
 import qualified Graphics.Vty as Vty
 import qualified Control.Exception as E
 import qualified Data.Vector as V
-import qualified System.Directory as Dir
+import qualified Brick.AttrMap as A
 
 import Object 
 import Data.List
@@ -17,6 +17,7 @@ import Brick.Widgets.List
 import Brick.Widgets.Border (border)
 import Control.Lens
 import Control.Monad.IO.Class
+import System.Directory 
 -- Todo: handle exceptions when changing dirs
 
 data Name = TabName String | Workspace String | EditName String | WindowName Int | BrowserName String 
@@ -51,10 +52,10 @@ changeDir ::  FilePath -> Window -> IO Window
 changeDir newDir window = E.catch go (raiseExceptionInWindow window)
         where
          go = do
-           dirExists <- Dir.doesDirectoryExist newDir
+           dirExists <- doesDirectoryExist newDir
            if dirExists then do
-             Dir.setCurrentDirectory newDir 
-             currDir    <- Dir.getCurrentDirectory 
+             setCurrentDirectory newDir 
+             currDir    <- getCurrentDirectory 
              newObjects <- getFiles currDir
              let brickList = list (window^.windowName) (V.fromList . sort $ newObjects ) 1
              return $ 
@@ -74,15 +75,23 @@ renderObject True object  = case object^.filetype of
                 fileInfo = case object^.info of
                              Just inf -> show inf
                              Nothing  -> "N/A"
-
 renderObject False object = case object^.filetype of
-     Directory -> padRight Max (forceAttr attrDir  $ str $  addIsSelected object ++ object^.name ++ "/")
-     _         -> padRight Max (forceAttr attrFile $ str $  addIsSelected object ++ object^.name) 
+     Directory -> padRight Max (forceAttr (attrib fselect ftype) $ str $  addIsSelected object ++ object^.name ++ "/")
+     _         -> padRight Max (forceAttr (attrib fselect ftype) $ str $  addIsSelected object ++ object^.name) 
                  <+> padLeft Max (str $ fileInfo)
-        where
-                fileInfo = case object^.info of
-                             Just inf -> show inf
-                             Nothing  -> "N/A"
+ where
+     ftype = object^.filetype
+     fselect = object^.isSelected
+     fileInfo = case object^.info of
+         Just inf -> show inf
+         Nothing  -> "N/A"
+
+attrib :: Bool -> FileType -> A.AttrName
+attrib selected f = if selected 
+                      then attrSelected
+                      else case f of
+                        Directory -> attrDir
+                        _         -> attrFile
 
 raiseExceptionInWindow :: Window -> IOError -> IO Window
 raiseExceptionInWindow window e = return $ window & windowException .~ (Just e)
@@ -100,17 +109,17 @@ handleWindowEvent event window =  case event of
          return $ set (objects) h window
 
 handleSelect ::  Window -> EventM Name Window 
-handleSelect window = case listSelectedElement (window^.objects) of 
-                        Just (_,obj) -> return $ window & objects.~(listModify selectObject (window^.objects))
-                        Nothing      -> return window 
+handleSelect w = case listSelectedElement (w^.objects) of 
+                        Just (_,obj) -> return $ w & objects.~(listModify selectObject (w^.objects))
+                        Nothing      -> return w
 
 
 handleChangeDirForward ::  Window -> EventM Name Window
-handleChangeDirForward window = case listSelectedElement (window^.objects) of
+handleChangeDirForward w = case listSelectedElement (w^.objects) of
      Just (_ , obj) -> case obj^.filetype of 
-              Directory -> liftIO $ changeDir (obj^.path) window
-              _         -> return window
-     Nothing        -> return window 
+              Directory -> liftIO $ changeDir (obj^.path) w
+              _         -> return w
+     Nothing        -> return w
 
 handleChangeDirBackward ::  Window -> EventM Name Window
 handleChangeDirBackward = liftIO . changeDir ".."
@@ -119,3 +128,5 @@ selectObject :: Object -> Object
 selectObject object = if object^.isSelected 
                          then object & isSelected.~False 
                          else object & isSelected.~True
+
+
