@@ -116,7 +116,7 @@ theMap = attrMap V.defAttr
 
 main :: IO ()
 main = do
-        w <- W.newWindow (WindowName 0) "."
-        dir       <- Dir.getCurrentDirectory
-        b <- M.defaultMain theApp =<< B.newBrowser (BrowserName "Main") (newTab (TabName dir) w)
+        w   <- W.newWindow (WindowName 0) "."
+        dir <- Dir.getCurrentDirectory
+        b   <- M.defaultMain theApp =<< B.newBrowser (BrowserName "Main") (newTab (TabName dir) w)
         putStrLn "Exit success"

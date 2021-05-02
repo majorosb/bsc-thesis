@@ -11,13 +11,12 @@ import Object
 import Window
 import Control.Lens
 import Brick.Widgets.Core
-import Brick.Types
+import Brick.Types hiding (Direction,Horizontal,Vertical)
 import Brick.Focus
 import Brick.Widgets.Border.Style
 import Brick.Widgets.Border 
 import Data.List
-
-
+import Data.Function
 
 data Direction = Horizontal | Vertical 
 data TInfo = TInfo { _dir :: Tabs.Direction
@@ -25,6 +24,9 @@ data TInfo = TInfo { _dir :: Tabs.Direction
 type Tiling = [(Window, Tabs.Direction)]
 
 data Tree a b = Leaf b | Node a (Tree a b) (Tree a b)
+instance Functor (Tree a) where
+        fmap f (Leaf w) = Leaf $ f w
+        fmap f (Node d t t') = Node d (fmap f t) (fmap f t')
                  --  ^ Window ^Tabs.Direction
                  --  Node Vertical (Leaf Window1) (Leaf Window2)
 
@@ -34,9 +36,9 @@ data Tab = Tab {  _tabName :: Name
                ,  _ring    :: FocusRing Name
                ,  _focused :: Window
                }
-
-
 makeLenses ''Tab
+
+
 --             H
 --       H       Leaf b
 --  Leafw  Leafw'
@@ -52,10 +54,9 @@ insertTree a b t (Node d t1 t2) = Node d (insertTree a b t t1) (insertTree a b t
 
 deleteTree :: (Eq b) => b ->  Tree a b -> Tree a b
 deleteTree t (Leaf t') = Leaf t'
-deleteTree t n@(Node d (Leaf t') (Leaf t'')) = if t' == t
-                                                    then Leaf t''
-                                                    else (if t'' == t then Leaf t'
-                                                                      else n)
+deleteTree t n@(Node d (Leaf t') (Leaf t'')) | t' == t    = Leaf t''
+                                             | t'' == t   = Leaf t'   
+                                             | otherwise = n          
 deleteTree t (Node d (Leaf t') tree) = case t' == t of
                                True  -> tree
                                False -> Node d (Leaf t')  (deleteTree t tree)
@@ -77,13 +78,11 @@ getWindow :: Tree Tabs.Direction Window -> Window
 getWindow (Leaf w) = w
 getWindow (Node _ t t') = getWindow t
 
-
 newTab :: Name -> Window -> Tab
 newTab name window = Tab name [(window,Tabs.Horizontal)] (Leaf window)  focusSet window
         where
            focusL   = focusRing [window^.windowName]
            focusSet = focusSetCurrent name focusL
-
 
 renderTab :: Tab -> Widget Name
 renderTab t = renderTree (t^.renderT) fwindow
@@ -115,7 +114,6 @@ hSplitWindow tab w direction = tab &  ring.~newFocus & renderT.~newTree
                newRing   = focusRing $ (focusRingToList (tab^.ring)) ++ [w^.windowName]
                w'        = tab^.focused
                newFocus  = focusSetCurrent (w^.windowName) newRing
-               
 
 refreshTab :: Tab -> Window -> Tab
 refreshTab t w = do t & focused.~w & renderT.~replaceInTree w (t^.renderT)
@@ -126,29 +124,93 @@ refreshFocusedW t w = do
         w' <- refreshWindow w
         return $ t & focused.~w' & renderT.~replaceInTree w' (t^.renderT)
              
+-- Shifting focus
+-- vertical :
+-- Keep track of the last Vertical parent of the source
+-- For example you want to go right 
+-- 1st check if the source is in 
 
-shiftFocus :: Tab -> Tab
-shiftFocus t = t & focused.~w' & ring.~newFocus
-        where w'       = goRight (t^.focused) (t^.renderT)
-              newFocus = focusSetCurrent (w'^.windowName) (t^.ring)
+data Movement = Left | Right | Up | Down
+
+shiftFocus :: Movement -> Tab -> Tab
+shiftFocus Tabs.Right t = t & focused.~w' & ring.~newFocus
+       where w'       = goRight (t^.focused) (neighborsV (t^.renderT))
+             newFocus = focusSetCurrent (w'^.windowName) (t^.ring)
+shiftFocus Tabs.Left t = t & focused.~w' & ring.~newFocus
+       where w'       = goLeft (t^.focused) (neighborsV (t^.renderT))
+             newFocus = focusSetCurrent (w'^.windowName) (t^.ring)
 -- Node Horizontal (Leaf l) (Leaf r) --this is bad now fix it
---
-goLeft :: Window -> Tree Tabs.Direction Window -> Window 
-goLeft source (Leaf _)                               = source
-goLeft source (Node Tabs.Vertical (Leaf l) (Leaf r)) = if source == l then l else l
-goLeft source (Node Tabs.Vertical (Leaf l) tree )    = if source == l then l else goLeft source tree
-goLeft source (Node Tabs.Vertical tree _)            = goLeft source tree
-goLeft source (Node Tabs.Horizontal _ _)             = source
 
-goRight :: Window -> Tree Tabs.Direction Window -> Window 
-goRight source (Leaf _) = source
-goRight source (Node Tabs.Vertical (Leaf l) (Leaf r)) = if source == l then r else r
-goRight source (Node Tabs.Vertical tree (Leaf r))     = if source == r then r else goRight source tree
-goRight source (Node Tabs.Vertical (Leaf l) tree)     = goRight source tree
-goRight source (Node Tabs.Horizontal tree tree2)      = if source == go then go else go
-                                                           where go  = goRight source tree
-                                                                 go2 = goRight source tree2
+                                                         
+isThereV :: Tree Tabs.Direction a -> Bool
+isThereV (Leaf _) = False
+isThereV (Node Tabs.Vertical _ _) = True
+isThereV (Node Tabs.Horizontal tree tree') = isThereV tree || isThereV tree'
+
+
+getNeighbors :: Tree Direction a -> [[a]]
+getNeighbors (Leaf w) = [[w]]
+getNeighbors (Node Vertical (Leaf w) (Leaf w')) = [[w,w']]
+getNeighbors (Node Vertical tree tree') = [goLeft' tree, goLeft' tree'] : (getNeighbors tree) ++ (getNeighbors tree')
+        where
+                goLeft' (Leaf w)                     = w
+                goLeft' (Node _ (Leaf w) (Leaf w'))  = w
+                goLeft' (Node _ (Leaf w) _)          = w
+                goLeft' (Node _ tree _)              = goLeft' tree 
+                goRight' (Leaf w)                    = w
+                goRight' (Node _ (Leaf w) (Leaf w')) = w'
+                goRight' (Node _ _ (Leaf w))         = w
+                goRight' (Node _ _ tree)             = goRight' tree 
+getNeighbors (Node Horizontal (Leaf w) (Leaf w')) = [[]]
+getNeighbors (Node Horizontal (Leaf w) tree) = getNeighbors tree
+getNeighbors (Node Horizontal tree (Leaf w)) = getNeighbors tree
+
+makeListV :: Tree Direction a -> [[a]]
+makeListV (Leaf w) = [[w]]
+makeListV tt@(Node Vertical (Leaf w) (Leaf w')) = [[w] ,[w']]
+makeListV tt@(Node Vertical (Leaf w) t') = makeListV t' ++ tV tt 
+makeListV tt@(Node Vertical t (Leaf w)) =  makeListV t  ++ tV tt 
+makeListV tt@(Node Vertical t t') =makeListV t ++ makeListV t' ++ tV tt 
+makeListV (Node Horizontal (Leaf _) (Leaf _))  = [[]]
+makeListV (Node Horizontal (Leaf _) t)        = makeListV t
+makeListV (Node Horizontal t (Leaf _))        = makeListV t
+makeListV (Node Horizontal t t')              = makeListV t ++ makeListV t'
+
+
+tV :: Tree Direction a -> [[a]]
+tV (Leaf w) = [[w]]
+tV (Node _ t t') = [makeList t, makeList t']
+
+makeList :: Tree Direction a -> [a]
+makeList (Leaf w)            = [w]
+makeList (Node _ (Leaf w) t) = w : makeList t
+makeList (Node _ t (Leaf w)) = (makeList t) ++ [w]
+makeList (Node _ t t')       = (makeList t) ++ (makeList t')
+
+
+makeTreeName :: Tree Direction Window -> Tree Direction Name
+makeTreeName t = fmap (\n -> n^.windowName) t
+
+adjList n = filter (\n -> n /= []) $ makeListV n
+
+adjList' []  = []
+adjList' [x] = [(x,[])]
+adjList' (x:y:xs) = [(x,y)] ++ adjList' xs
+
+neighborsV :: Eq a => Tree Direction a -> [([a],[a])]
+neighborsV = adjList' . filter (\n -> n /= []) .  makeListV 
+
+goRight :: Eq a => a -> [([a],[a])] -> a
+goRight source []         = source
+goRight source ((f,s):xs) = if source `elem` f && s /= [] 
+                               then head s 
+                               else goRight source xs
+              
+goLeft :: Eq a => a -> [([a],[a])] -> a
+goLeft source []         = source
+goLeft source ((f,s):xs) = if source `elem` s && s /= [] 
+                               then head f
+                               else goLeft source xs
 
 findWindow :: Name -> Tab -> Maybe (Window,Tabs.Direction)
 findWindow name t = find (\n -> (fst n)^.windowName == name) (t^.tiles)
-

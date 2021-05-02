@@ -17,8 +17,7 @@ data Object = Object { _name       :: String,
                        _isSelected :: Bool,
                        _info       :: Maybe Info 
                      } 
-instance Eq Object where 
-        Object{_filetype = f1} == Object{_filetype = f2} = f1 == f2
+ deriving Eq
 
 instance Ord Object where
         compare Object{_filetype = f1} Object{ _filetype = f2} = compare f1 f2
@@ -26,15 +25,17 @@ instance Ord Object where
 instance Show Object where
         show Object{_name = name, _filetype = t, _path = path} =
                 case t of 
-                 File         -> "- " ++ name 
-                 Directory    -> "+ " ++ name
-                 SymbolicLink -> "- " ++ name
+                 File         -> name ++ " " ++ path ++ " " ++show t
+                 Directory    -> name ++ " " ++ path ++ " " ++show t
+                 SymbolicLink -> name ++ " " ++ path ++ " " ++show t
 
 data Info = Info     { _size       :: Integer,
                        _permission :: Dir.Permissions,
                        _acctime    :: UTCTime,
                        _modtime    :: UTCTime
                      }
+ deriving (Eq, Ord)
+
 data FileType =  SymbolicLink | Directory | File 
                     -- ^ POSIX: either file or directory link; Windows: file link
  deriving (Bounded, Enum, Eq, Ord, Read, Show)

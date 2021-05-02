@@ -36,11 +36,12 @@ makeLenses ''Window
 instance Eq Window where
         (==) w1 w2 = w1^.windowName == w2^.windowName 
 
-newWindow :: Name -> FilePath  ->  IO Window
+newWindow :: Name -> FilePath -> IO Window
 newWindow resourceName dir = do
+     absDir <- makeAbsolute dir
      objectStrings <- getFiles dir
      let brickList = list resourceName (V.fromList . sort $ objectStrings) 1
-     return $ Window dir brickList resourceName Nothing
+     return $ Window absDir brickList resourceName Nothing
 
 refreshWindow :: Window -> IO Window
 refreshWindow w = do 
@@ -59,8 +60,8 @@ changeDir newDir window = E.catch go (raiseExceptionInWindow window)
              newObjects <- getFiles currDir
              let brickList = list (window^.windowName) (V.fromList . sort $ newObjects ) 1
              return $ 
-               window & currentDir .~ newDir &
-               objects .~ brickList & windowException .~ Nothing
+               window & currentDir.~newDir &
+               objects.~brickList & windowException.~Nothing
            else return $ window
 
 addIsSelected :: Object -> String
@@ -113,13 +114,12 @@ handleSelect w = case listSelectedElement (w^.objects) of
                         Just (_,obj) -> return $ w & objects.~(listModify selectObject (w^.objects))
                         Nothing      -> return w
 
-
 handleChangeDirForward ::  Window -> EventM Name Window
 handleChangeDirForward w = case listSelectedElement (w^.objects) of
      Just (_ , obj) -> case obj^.filetype of 
               Directory -> liftIO $ changeDir (obj^.path) w
               _         -> return w
-     Nothing        -> return w
+     Nothing            -> return w
 
 handleChangeDirBackward ::  Window -> EventM Name Window
 handleChangeDirBackward = liftIO . changeDir ".."
