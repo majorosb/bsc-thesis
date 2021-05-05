@@ -27,6 +27,10 @@ data Tree a b = Leaf b | Node a (Tree a b) (Tree a b)
 instance Functor (Tree a) where
         fmap f (Leaf w) = Leaf $ f w
         fmap f (Node d t t') = Node d (fmap f t) (fmap f t')
+
+instance Foldable (Tree a) where
+        foldr f z (Leaf b) = f b z
+        foldr f z (Node _ t t') = foldr f (foldr f z t') t
                  --  ^ Window ^Tabs.Direction
                  --  Node Vertical (Leaf Window1) (Leaf Window2)
 
@@ -139,6 +143,12 @@ shiftFocus Tabs.Right t = t & focused.~w' & ring.~newFocus
 shiftFocus Tabs.Left t = t & focused.~w' & ring.~newFocus
        where w'       = goLeft (t^.focused) (neighborsV (t^.renderT))
              newFocus = focusSetCurrent (w'^.windowName) (t^.ring)
+shiftFocus Tabs.Down t = t & focused.~w' & ring.~newFocus
+       where w'       = goRight (t^.focused) (neighborsH (t^.renderT))
+             newFocus = focusSetCurrent (w'^.windowName) (t^.ring)
+shiftFocus Tabs.Up t = t & focused.~w' & ring.~newFocus
+       where w'       = goLeft (t^.focused) (neighborsU (t^.renderT))
+             newFocus = focusSetCurrent (w'^.windowName) (t^.ring)
 -- Node Horizontal (Leaf l) (Leaf r) --this is bad now fix it
 
                                                          
@@ -176,10 +186,35 @@ makeListV (Node Horizontal (Leaf _) t)        = makeListV t
 makeListV (Node Horizontal t (Leaf _))        = makeListV t
 makeListV (Node Horizontal t t')              = makeListV t ++ makeListV t'
 
+makeListH :: Tree Direction a -> [[a]]
+makeListH (Leaf w) = [[w]]
+makeListH tt@(Node Horizontal (Leaf w) (Leaf w')) = [[w] ,[w']]
+makeListH tt@(Node Horizontal (Leaf w) t')   = makeListH t' ++ tV tt 
+makeListH tt@(Node Horizontal t (Leaf w))    = makeListH t  ++ tV tt 
+makeListH tt@(Node Horizontal t t')          = makeListH t ++ makeListH t' ++ tV tt 
+makeListH (Node Vertical (Leaf _) (Leaf _))  = [[]]
+makeListH (Node Vertical (Leaf _) t)         = makeListH t
+makeListH (Node Vertical t (Leaf _))         = makeListH t
+makeListH (Node Vertical t t')               = makeListH t ++ makeListH t'
+
+makeListU :: Tree Direction a -> [[a]]
+makeListU (Leaf w) = [[w]]
+makeListU tt@(Node Horizontal (Leaf w) (Leaf w')) = [[w'] ,[w]]
+makeListU tt@(Node Horizontal (Leaf w) t')   = makeListH t' ++ tR tt
+makeListU tt@(Node Horizontal t (Leaf w))    = makeListH t ++ tR tt 
+makeListU tt@(Node Horizontal t t')          = makeListH t ++ makeListH t' ++ tR tt 
+makeListU (Node Vertical (Leaf _) (Leaf _))  = [[]]
+makeListU (Node Vertical (Leaf _) t)         = makeListH t
+makeListU (Node Vertical t (Leaf _))         = makeListH t
+makeListU (Node Vertical t t')               = makeListH t ++ makeListH t'
 
 tV :: Tree Direction a -> [[a]]
 tV (Leaf w) = [[w]]
 tV (Node _ t t') = [makeList t, makeList t']
+
+tR :: Tree Direction a -> [[a]]
+tR (Leaf w) = [[w]]
+tR (Node _ t t') = [makeList t', makeList t]
 
 makeList :: Tree Direction a -> [a]
 makeList (Leaf w)            = [w]
@@ -198,7 +233,13 @@ adjList' [x] = [(x,[])]
 adjList' (x:y:xs) = [(x,y)] ++ adjList' xs
 
 neighborsV :: Eq a => Tree Direction a -> [([a],[a])]
-neighborsV = adjList' . filter (\n -> n /= []) .  makeListV 
+neighborsV = adjList' . filter (\n -> n /= []) . makeListV 
+
+neighborsH :: Eq a => Tree Direction a -> [([a],[a])]
+neighborsH = adjList' . filter (\n -> n /= []) . makeListH 
+
+neighborsU :: Eq a => Tree Direction a -> [([a],[a])]
+neighborsU = adjList' . filter (\n -> n /= []) . makeListU 
 
 goRight :: Eq a => a -> [([a],[a])] -> a
 goRight source []         = source
@@ -211,6 +252,7 @@ goLeft source []         = source
 goLeft source ((f,s):xs) = if source `elem` s && s /= [] 
                                then head f
                                else goLeft source xs
+
 
 findWindow :: Name -> Tab -> Maybe (Window,Tabs.Direction)
 findWindow name t = find (\n -> (fst n)^.windowName == name) (t^.tiles)

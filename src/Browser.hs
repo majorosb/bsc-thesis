@@ -18,11 +18,13 @@ import System.IO.Error
 import System.FilePath.Posix
 import System.Environment
 import Conduit
+import Data.Vector as V (toList)
 import Data.Maybe
 import Data.Char
-import Data.List.Zipper as Z
 import Data.List
-import Data.Vector as V (toList)
+import Data.List.Zipper as Z
+import qualified Data.Map as M
+
 
 import Brick.Types
 import Brick.Widgets.List as L
@@ -43,12 +45,17 @@ data Browser = Browser { _tabs        :: Zipper (Tab)
                        , _clipboard   :: Board
                        , _buffer      :: Board
                        , _winCount    :: Int
+                       , _marks       :: M.Map Char FilePath
                        }
 
+data Action  = Paste | ConfirmPaste | Rename | Move | Yank | Touch | SetMark | Mark 
+        deriving (Show, Eq)
+
 data Board = Clipboard [Object] | Cutboard [Object] | Empty
-data Action  = Paste | ConfirmPaste | Rename | Move | Yank | Touch deriving Show
 
 makeLenses ''Browser
+
+
 
 statusLineW :: String -> Widget a
 statusLineW s = withAttr attrStatus $ vLimit 1 $ str s
@@ -81,14 +88,14 @@ renderBrowser browser =
 
 renderTabNames ::  String -> String -> Widget Name
 renderTabNames x x' = if x == x' 
-                        then withAttr tFocused $ vLimit 1 $ str $ x' ++ " "
-                        else withAttr tEmpty   $ vLimit 1 $ str $ x' ++ " "
+                        then withAttr tFocused . vLimit 1 . str $ x' ++ " "
+                        else withAttr tEmpty . vLimit 1 . str $ x' ++ " "
 
 
 newBrowser :: Name -> Tab -> IO Browser
 newBrowser name tab =do
         ext <- extEditor
-        return $ Browser (fromList $ tab:[]) name "" "" ext ed Nothing False Browser.Empty Browser.Empty 1
+        return $ Browser (fromList $ tab:[]) name "" "" ext ed Nothing False Browser.Empty Browser.Empty 1 M.empty
         where ed = editor (EditName "editor")  (Just 1) ""
               extEditor = do 
                       e <- lookupEnv "EDITOR" 
@@ -106,7 +113,7 @@ handleBrowserNormal ev = case ev of
      Vty.EvKey (Vty.KChar 'r')  []  -> browserSetAction Rename "Rename: " True -- activating the Rename action in the state
      Vty.EvKey (Vty.KChar 'i')  []  -> browserSetAction Touch "Touch: " True -- activating the Touch action in the state
      Vty.EvKey (Vty.KChar 't')  []  -> addNewTab 
-     Vty.EvKey (Vty.KChar 'y')  []  -> browserSetAction Yank "" False
+     Vty.EvKey (Vty.KChar 'y')  []  -> browserSetAction Yank "Yank" False
      Vty.EvKey (Vty.KChar 'x')  []  -> cutSelectedObjects 
      Vty.EvKey (Vty.KChar 'p')  []  -> handleCopy 
      Vty.EvKey (Vty.KChar 'b')  []  -> moveTabBackward 
@@ -114,9 +121,12 @@ handleBrowserNormal ev = case ev of
      Vty.EvKey (Vty.KChar 'o')  []  -> handleOrdObjects 
      Vty.EvKey (Vty.KChar 'H')  []  -> handleHSplit 
      Vty.EvKey (Vty.KChar 'V')  []  -> handleVSplit
+     Vty.EvKey (Vty.KChar 'd')  []  -> deleteWindow
+     Vty.EvKey (Vty.KChar 'm')  []  -> browserSetAction SetMark "Setting mark" False
      Vty.EvKey (Vty.KLeft)      []  -> handleShiftFocus Tabs.Left
      Vty.EvKey (Vty.KRight)     []  -> handleShiftFocus Tabs.Right
-     Vty.EvKey (Vty.KChar 'd')  []  -> deleteWindow
+     Vty.EvKey (Vty.KUp)        []  -> handleShiftFocus Tabs.Up
+     Vty.EvKey (Vty.KDown)      []  -> handleShiftFocus Tabs.Down
      otherwise                      -> handleOtherEvents ev
 
 handleOtherEvents :: Vty.Event -> Browser -> EventM Name Browser
@@ -138,15 +148,31 @@ handleBrowserAction e a =  case a of
      ConfirmPaste -> handleWithInput handleCopyConfirm e 
      Touch        -> handleWithInput handleTouchAction e 
      Yank         -> handleYank e
+     SetMark      -> handleSetMark e
      _            -> return  
+
+handleSetMark :: Vty.Event -> Browser -> EventM Name Browser
+handleSetMark (Vty.EvKey( Vty.KChar x) []) b = return $ b' & marks.~m
+        where wPath = (focusedWindow b)^.currentDir
+              m = M.insert x wPath $ b^.marks
+              b' = browserFinishAction ("Mark set to " ++ (x : " -> " ++ wPath)) b
+handleSetMark (Vty.EvKey _ []) b = return $ browserFinishAction "Invalid key to set a mark" b
 
 handleYank :: Vty.Event -> Browser -> EventM Name Browser
 handleYank e = case e of 
       Vty.EvKey (Vty.KChar 'y') [] -> copySelectedObjects
       Vty.EvKey (Vty.KChar 'a') [] -> copyCurrDir
       Vty.EvKey (Vty.KChar 'i') [] -> undefined --  copyCurrDirFiles
+      Vty.EvKey (Vty.KChar 't') [] -> copyTab
       _                            -> return . browserFinishAction "" 
 
+copyTab :: Browser -> EventM Name Browser
+copyTab b = do 
+        let b' = browserFinishAction ("Copbied " ++ (show . length $ l) ++ " files from this tab") b
+        return $ b' & clipboard.~clip & buffer.~clip
+        where tree = (focusedTab b)^.renderT
+              l    = nub . concat . map (\n -> selectedObjects n) . foldr (:) [] $ tree
+              clip = Clipboard $ l
 safePaste :: Browser -> EventM Name Browser
 safePaste b@Browser {_buffer=Cutboard (x:xs)} = case (x^.filetype) of 
        Directory -> do
@@ -183,7 +209,7 @@ safeCopyPaste  b@Browser {_buffer=Clipboard (x:xs)} = do
                 w = focusedWindow b
 
 
-pasteOneObject :: Bool -> Browser -> EventM Name Browser
+pasteOneObject :: Bool -> Browser -> EventM Name Browser --the bool indicates if it has been confirmed
 pasteOneObject c b@Browser {_buffer=Clipboard (x:xs)} = do
         contents <- liftIO $ getDirectoryContents $ w^.currentDir
         case c of 
@@ -290,8 +316,10 @@ handleSkipCopy (x:xs) b = do
 
 getSelectedElement :: Browser -> EventM Name Browser
 getSelectedElement b = case listSelectedElement (w^.objects) of 
-                        Just (_,obj) -> return $ b & buffer.~(Clipboard [obj]) & clipboard.~(Clipboard [obj]) & action.~Nothing
-                        Nothing      -> return b
+        Just (_,obj) -> return $ b & buffer.~(Clipboard [obj]) 
+                                   & clipboard.~(Clipboard [obj])
+                                   & action.~Nothing
+        Nothing      -> return b
         where w = focusedWindow b
 
 
@@ -314,7 +342,10 @@ cutSelectedObjects b = return $ b & buffer.~clip & clipboard.~clip
               t = focusedTab b
 
 copyCurrDir :: Browser -> EventM Name Browser
-copyCurrDir b = return $ b & buffer.~clip & clipboard.~clip & action.~Nothing & statusLine.~msg
+copyCurrDir b = return $ b & buffer.~clip 
+                           & clipboard.~clip
+                           & action.~Nothing 
+                           & statusLine.~msg
         where clip = Clipboard $ (V.toList . listElements $ w^.objects)
               w = focusedWindow b
               msg = "Current directory copied to clipboard with " ++ (show . length . fromBoard $ clip) ++ " objects"

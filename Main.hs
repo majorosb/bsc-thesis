@@ -26,7 +26,7 @@ drawUI browser= pure $ withDefAttr baseAttr $
 
 openFile :: Browser -> Object -> IO Browser
 openFile b (Object{_name=n}) = do 
-        p <- runCommand $ "xdg-open " ++ n
+        p <- runCommand $ "open " ++ n
         waitForProcess p
         putStrLn "Press ENTER to return to the browser."
         getLine
@@ -42,7 +42,7 @@ openEditor b (Object{_name=n}) = do
 
 withCheckInputMode :: (Browser -> Object -> IO Browser) -> V.Event -> Browser -> EventM Name (Next Browser)
 withCheckInputMode f ev b = 
-        if (b^.inputMode)
+        if (b^.inputMode) || ((b^.action) /= Nothing)
           then do
             b' <- handleBrowserEvent ev b
             M.continue b'
