@@ -168,7 +168,7 @@ handleYank e = case e of
 
 copyTab :: Browser -> EventM Name Browser
 copyTab b = do 
-        let b' = browserFinishAction ("Copbied " ++ (show . length $ l) ++ " files from this tab") b
+        let b' = browserFinishAction ("Copied " ++ (show . length $ l) ++ " files from this tab") b
         return $ b' & clipboard.~clip & buffer.~clip
         where tree = (focusedTab b)^.renderT
               l    = nub . concat . map (\n -> selectedObjects n) . foldr (:) [] $ tree

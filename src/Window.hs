@@ -18,7 +18,8 @@ import Brick.Widgets.Border (border)
 import Control.Lens
 import Control.Monad.IO.Class
 import System.Directory 
--- Todo: handle exceptions when changing dirs
+import System.Environment
+import System.FilePath
 
 data Name = TabName String | Workspace String | EditName String | WindowName Int | BrowserName String 
         deriving (Eq,Ord,Show)
@@ -38,10 +39,27 @@ instance Eq Window where
 
 newWindow :: Name -> FilePath -> IO Window
 newWindow resourceName dir = do
-     absDir <- makeAbsolute dir
-     objectStrings <- getFiles dir
-     let brickList = list resourceName (V.fromList . sort $ objectStrings) 1
-     return $ Window absDir brickList resourceName Nothing
+     dirExists <- doesDirectoryExist dir
+     if dirExists 
+     then do
+             absDir <- makeAbsolute dir
+             objectStrings <- getFiles dir
+             let brickList = list resourceName (V.fromList . sort $ objectStrings) 1
+             return $ Window absDir brickList resourceName Nothing
+     else do
+             e <- lookupEnv "HOME" 
+             case e of
+              Nothing -> do 
+               objectStrings <- getFiles "/"
+               let brickList = list resourceName (V.fromList . sort $ objectStrings) 1
+               return $ Window "/" brickList resourceName Nothing
+              Just home -> do 
+               absDir <- makeAbsolute dir
+               objectStrings <- getFiles dir
+               let brickList = list resourceName (V.fromList . sort $ objectStrings) 1
+               return $ Window absDir brickList resourceName Nothing
+
+                  
 
 refreshWindow :: Window -> IO Window
 refreshWindow w = do 
@@ -60,9 +78,9 @@ changeDir newDir window = E.catch go (raiseExceptionInWindow window)
              newObjects <- getFiles currDir
              let brickList = list (window^.windowName) (V.fromList . sort $ newObjects ) 1
              return $ 
-               window & currentDir.~newDir &
+               window & currentDir.~currDir &
                objects.~brickList & windowException.~Nothing
-           else return $ window
+           else return $ window 
 
 addIsSelected :: Object -> String
 addIsSelected object = if object^.isSelected then "+ " else ""
@@ -122,7 +140,10 @@ handleChangeDirForward w = case listSelectedElement (w^.objects) of
      Nothing            -> return w
 
 handleChangeDirBackward ::  Window -> EventM Name Window
-handleChangeDirBackward = liftIO . changeDir ".."
+handleChangeDirBackward w = do
+        w' <- liftIO . changeDir ".." $ w
+        let childDir = dropTrailingPathSeparator (w^.currentDir)
+        return $ w' & objects.~(listFindBy (\n -> n^.path == childDir) (w'^.objects))
  
 selectObject :: Object -> Object
 selectObject object = if object^.isSelected 

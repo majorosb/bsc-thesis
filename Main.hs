@@ -26,7 +26,7 @@ drawUI browser= pure $ withDefAttr baseAttr $
 
 openFile :: Browser -> Object -> IO Browser
 openFile b (Object{_name=n}) = do 
-        p <- runCommand $ "open " ++ n
+        p <- runCommand $ "xdg-open " ++ n
         waitForProcess p
         putStrLn "Press ENTER to return to the browser."
         getLine
