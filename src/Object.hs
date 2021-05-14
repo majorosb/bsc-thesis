@@ -8,15 +8,16 @@ import qualified System.Directory as Dir
 import qualified Brick.AttrMap as A
 import Brick.Widgets.List (listAttr)
 import Data.Time.Clock
-import Data.Time.Calendar.OrdinalDate
+import Data.Time.Format
 import Control.Exception
 
-data Object = Object { _name       :: String,
-                       _path       :: FilePath,
-                       _filetype   :: FileType,
-                       _isSelected :: Bool,
-                       _info       :: Maybe Info 
-                     } 
+data Object =
+   Object { _name       :: String,
+            _path       :: FilePath,
+            _filetype   :: FileType,
+            _isSelected :: Bool,
+            _info       :: Maybe Info 
+          } 
  deriving Eq
 
 instance Ord Object where
@@ -40,9 +41,14 @@ data FileType =  SymbolicLink | Directory | File
                     -- ^ POSIX: either file or directory link; Windows: file link
  deriving (Bounded, Enum, Eq, Ord, Read, Show)
 
+makeLenses ''Info
 makeLenses ''Object
 
+defTime :: UTCTime -> String
+defTime = formatTime defaultTimeLocale "%b %u %R"
 
+defTimeAfterYear :: UTCTime -> String
+defTimeAfterYear = formatTime defaultTimeLocale "%y %b %u"
 
 permissionS :: Dir.Permissions -> String
 permissionS p = [ 
@@ -51,16 +57,25 @@ permissionS p = [
                 if Dir.executable p then 'x' else '-',
                 if Dir.searchable p then 's' else '-'
                 ]
-
+convUnit :: Integer -> (String,Float) -> (String,Integer)
+convUnit b (f,s) = (f,round $ n/s)
+        where n = fromIntegral b :: Float
+convertBytes :: Integer -> String 
+convertBytes b = case filter (\(_,s) -> s > 1) [convUnit b x | x <- units] of
+                   []     -> show b ++ " " ++ "B"
+                   l      -> show n ++ " " ++ sizeName
+                        where (sizeName,n) = last l 
+        where units = [("KB", 1024 ** 1),("MB",1024 ** 2),("GB",1024 ** 3),("TB",1024 ** 4),("PB",1024 ** 5),("EB",1024 ** 6)]
+              
 instance Show Info where
-        show Info {_size = s, _permission = p} = 
-                   show s ++ " " ++ permissionS p
+        show Info {_modtime = m, _size = s, _permission = p} = 
+                (convertBytes s) ++ " " ++ permissionS p
 
 getFile :: FilePath -> IO Object     -- Maybe Object would be better?
 getFile f = do
         fileInfo   <- getInfo f
         isfile     <- Dir.doesFileExist f
-        filePath   <- Dir.makeAbsolute f -- catch exceptions aswell
+        filePath   <- Dir.makeAbsolute f 
         case isfile of
          True  -> return $ Object f filePath File False fileInfo
          False -> return $ Object f filePath Directory False fileInfo
@@ -72,11 +87,11 @@ getFiles filePath = do
 
 getInfo :: FilePath -> IO (Maybe Info)
 getInfo fileName = handle errorHandler $ do
-        size    <- Dir.getFileSize fileName 
-        perm    <- Dir.getPermissions fileName
-        acctime <- getTimeStampAcc fileName
-        modtime <- getTimeStampMod fileName
-        return $ Just $ Info size perm acctime modtime
+        fsize    <- Dir.getFileSize fileName 
+        perm     <- Dir.getPermissions fileName
+        acctime' <- getTimeStampAcc fileName
+        modtime' <- getTimeStampMod fileName
+        return $ Just $ Info fsize perm acctime' modtime'
         where 
                 errorHandler :: SomeException -> IO (Maybe Info)
                 errorHandler _ = return Nothing
@@ -95,8 +110,8 @@ baseAttr :: A.AttrName
 baseAttr = listAttr <> A.attrName "window"
 
 fileTypeToAttr :: FileType -> A.AttrName
-fileTypeToAttr File      =  baseAttr <> A.attrName "file"
 fileTypeToAttr Directory =  baseAttr <> A.attrName "dir"
+fileTypeToAttr _ =  baseAttr <> A.attrName "file"
 
 attrFile :: A.AttrName
 attrFile = A.attrName "file"

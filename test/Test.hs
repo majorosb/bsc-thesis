@@ -79,7 +79,7 @@ test4 = TestCase(do
         files <- test2Files
         w <- testWindow
         let l = toList $ listElements (w^.objects) 
-        assertEqual "Paths are not the same" (sort l) files)
+        assertEqual "The two list are not equal" (sort l) files)
 
         
 testWindow :: IO Window

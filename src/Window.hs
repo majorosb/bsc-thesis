@@ -87,16 +87,16 @@ addIsSelected object = if object^.isSelected then "+ " else ""
 
 renderObject :: Bool -> Object -> Widget Name
 renderObject True object  = case object^.filetype of
-     Directory -> padRight Max (forceAttr listSelectedFocusedAttr $ str $  addIsSelected object ++ object^.name ++ "/")
-     _         -> padRight Max (forceAttr listSelectedFocusedAttr $ str $  addIsSelected object ++ object^.name) 
+     Directory -> padRight Max (str $  addIsSelected object ++ object^.name ++ "/")
+     _         -> padRight Max (str $  addIsSelected object ++ object^.name) 
                  <+> padLeft Max (str $ fileInfo)
-        where
-                fileInfo = case object^.info of
-                             Just inf -> show inf
-                             Nothing  -> "N/A"
+  where
+      fileInfo = case object^.info of
+          Just inf -> show inf
+          Nothing  -> "N/A"
 renderObject False object = case object^.filetype of
-     Directory -> padRight Max (forceAttr (attrib fselect ftype) $ str $  addIsSelected object ++ object^.name ++ "/")
-     _         -> padRight Max (forceAttr (attrib fselect ftype) $ str $  addIsSelected object ++ object^.name) 
+     Directory -> padRight Max (withAttr (attrib fselect ftype) $ str $ addIsSelected object ++ object^.name ++ "/")
+     _         -> padRight Max (withAttr (attrib fselect ftype) $ str $ addIsSelected object ++ object^.name) 
                  <+> padLeft Max (str $ fileInfo)
  where
      ftype = object^.filetype
