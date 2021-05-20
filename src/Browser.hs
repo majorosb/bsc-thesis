@@ -39,7 +39,7 @@ data Browser =
            , _input       :: String -- ^ The input string after user hits Enter.
            , _defEditor   :: String -- ^ The default external editor
            , _bEditor     :: Editor String Name -- ^ Editor provided by the Brick library.
-           , _action      :: Maybe Action -- The action that gets executed.
+           , _action      :: Maybe Action -- ^ Current action
            , _inputMode   :: Bool -- ^ Whether the application is in input mode or not. 
            , _clipboard   :: Board 
            , _buffer      :: Board -- ^ A copy of clipboard. It is used to keep track of the state during copy.
@@ -49,7 +49,7 @@ data Browser =
            }
 
 -- | The actions that the Browser can make. 
-data Action  = Paste | ConfirmPaste | Rename | Move | Yank | Touch | SetMark | Mark | Delete
+data Action  = Paste | ConfirmPaste | Rename | Move | Yank | Touch | SetMark | Mark | Delete | Go
         deriving (Show, Eq)
 
 data Board = Clipboard [Object] | Cutboard [Object] | Empty
@@ -130,10 +130,11 @@ handleBrowserNormal :: Vty.Event -> Browser -> EventM Name Browser
 handleBrowserNormal ev = case ev of 
      Vty.EvKey (Vty.KChar 'c')  []  -> browserSetAction Rename "Rename: " True  -- activating the Rename action in the state
      Vty.EvKey (Vty.KChar 'i')  []  -> browserSetAction Touch "Touch: " True    -- activating the Touch action in the state
-     Vty.EvKey (Vty.KChar 'd')  []  -> browserSetAction Delete "Delete" False   -- activating the Delete action in the state
+     --Vty.EvKey (Vty.KChar 'd')  []  -> browserSetAction Delete "Delete" False   -- activating the Delete action in the state
      Vty.EvKey (Vty.KChar 'm')  []  -> browserSetAction SetMark "Setting mark" False
      Vty.EvKey (Vty.KChar 'y')  []  -> browserSetAction Yank "Yank" False
      Vty.EvKey (Vty.KChar '\'') []  -> browserSetAction Mark "Jump to mark" False
+     Vty.EvKey (Vty.KChar 'g')  []  -> browserSetAction Go "Go" False
      Vty.EvKey (Vty.KChar 't')  []  -> addNewTab 
      Vty.EvKey (Vty.KChar 'x')  []  -> cutSelectedObjects 
      Vty.EvKey (Vty.KChar 'p')  []  -> handleCopy 
@@ -175,6 +176,7 @@ handleBrowserAction e a =  case a of
      SetMark      -> handleSetMark e
      Mark         -> handleJumpMark e
      Delete       -> handleDelete e
+     Go           -> handleGo e
      _            -> return  
 
 handleDelete :: Vty.Event -> Browser -> EventM Name Browser
@@ -210,6 +212,17 @@ deleteFile obj = case obj^.filetype of
                            exists <- doesFileExist (obj^.path)
                            if exists then removeFile (obj^.path)
                                    else return ()
+
+deleteWindow :: Browser -> EventM Name Browser
+deleteWindow b = return $ b & tabs.~(refreshTabZipper (b^.tabs) t')
+        where t = focusedTab b 
+              w = focusedWindow b
+              tree = t^.renderT
+              tree' = deleteTree w tree
+              w'    = getWindow tree'
+              ring' = focusSetCurrent (w'^.windowName) (t'^.ring)
+              t'    = t & renderT.~tree' & focused.~w' & ring.~ring'
+
 -- | Handler for setting marks. 
 handleSetMark :: Vty.Event -> Browser -> EventM Name Browser
 handleSetMark (Vty.EvKey( Vty.KChar x) []) b = return $ b' & marks.~m
@@ -217,6 +230,7 @@ handleSetMark (Vty.EvKey( Vty.KChar x) []) b = return $ b' & marks.~m
               m = M.insert x wPath $ b^.marks
               b' = browserFinishAction ("Mark set to " ++ (x : " -> " ++ wPath)) b
 handleSetMark _ b = return $ browserFinishAction "Invalid key to set a mark" b
+
 -- | Handler for jumping to marks. 
 handleJumpMark :: Vty.Event -> Browser -> EventM Name Browser
 handleJumpMark (Vty.EvKey( Vty.KChar x) []) b = case M.lookup x (b^.marks) of
@@ -225,10 +239,29 @@ handleJumpMark (Vty.EvKey( Vty.KChar x) []) b = case M.lookup x (b^.marks) of
            exists <- liftIO $ doesDirectoryExist mPath
            if exists then b' else returnBrowserError "Mark path doesn't exists" b
                    where w = focusedWindow b
-                         b' = do
-                                 w' <- liftIO $ changeDir mPath w
-                                 replaceFocusedWindow w' b 
+                         b' = changeWindowDir mPath b
 handleJumpMark _ b = return $ browserFinishAction "Invalid key to a mark" b
+
+handleGo :: Vty.Event -> Browser -> EventM Name Browser
+handleGo e@(Vty.EvKey( Vty.KChar 'g') []) b = handleOtherEvents e b
+handleGo (Vty.EvKey( Vty.KChar 'h') []) b = 
+        do 
+        envHome <- liftIO $ lookupEnv "HOME"  
+        case envHome of
+           Nothing   -> returnBrowserError "Couldn't find Home dir" b
+           Just path -> changeWindowDir path b
+handleGo (Vty.EvKey( Vty.KChar '/') []) b = changeWindowDir "/" b
+handleGo _ b = return . browserFinishAction "" $ b
+
+changeWindowDir :: FilePath -> Browser -> EventM Name Browser
+changeWindowDir path b = do 
+                exists <- liftIO $ doesDirectoryExist path
+                if exists then b' else returnBrowserError "Path doesn't exists" b
+                where w  = focusedWindow b
+                      b' = do
+                       w' <- liftIO $ changeDir path w
+                       b'' <- return $ browserFinishAction "" b
+                       replaceFocusedWindow w' b''
 
 -- Rename and Touch -- 
 handleRenameAction :: Vty.Event -> Browser -> EventM Name Browser
@@ -240,7 +273,12 @@ handleTouchAction _  = handleTouch
 browserSetAction :: Action ->  String -> Bool -> Browser -> EventM Name Browser 
 browserSetAction a msg f b= return $ b & action?~a 
                             & inputMode.~f & statusLine.~msg & input.~"" 
-handleWithInput :: (Vty.Event -> Browser -> EventM Name Browser)-> Vty.Event -> Browser  -> EventM Name Browser
+
+-- | This function is to handle input for events, for example: touch, rename, make dir. 
+handleWithInput :: (Vty.Event -> Browser -> EventM Name Browser) -- ^ The handler function to execute after user input.
+                -> Vty.Event                                   
+                -> Browser
+                -> EventM Name Browser
 handleWithInput f e b = if b^.inputMode then handleBrowserInput e b else f e b
 
 --Copy--
@@ -550,15 +588,6 @@ insertIntoWs tz b = b & tabs.~(Z.insert tz (b^.tabs))
 focusedWSpace :: Browser -> Zipper(Tab)
 focusedWSpace b = cursor $ b^.tabs 
 
-deleteWindow :: Browser -> EventM Name Browser
-deleteWindow b = return $ b & tabs.~(refreshTabZipper (b^.tabs) t')
-        where t = focusedTab b 
-              w = focusedWindow b
-              tree = t^.renderT
-              tree' = deleteTree w tree
-              w'    = getWindow tree'
-              ring' = focusSetCurrent (w'^.windowName) (t'^.ring)
-              t'    = t & renderT.~tree' & focused.~w' & ring.~ring'
 
 handleHSplit :: Browser -> EventM Name Browser
 handleHSplit b = do 
