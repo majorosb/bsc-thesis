@@ -46,11 +46,16 @@ data Browser =
            , _winCount    :: Int  -- ^ This provides unique names for the Window type.
            , _wspace      :: Int  -- ^ Current workspace
            , _marks       :: M.Map Char FilePath 
+           , _order       :: (Ordering,OrderBy)
            }
 
 -- | The actions that the Browser can make. 
 data Action  = Paste | ConfirmPaste | Rename | Move | Yank | Touch | SetMark | Mark | Delete | Go
         deriving (Show, Eq)
+
+data OrderBy = ByName | ByMod | BySize
+data Ordering = Ascending | Descending
+
 
 data Board = Clipboard [Object] | Cutboard [Object] | Empty
 
@@ -105,6 +110,7 @@ newBrowser rName tab =do
                         ,_winCount = 4
                         ,_wspace   = 1
                         ,_marks = M.empty
+                        ,_order = (Ascending, ByName)
                         }
         where ed = editor (EditName "editor")  (Just 1) ""
               extEditor = do 
@@ -130,7 +136,7 @@ handleBrowserNormal :: Vty.Event -> Browser -> EventM Name Browser
 handleBrowserNormal ev = case ev of 
      Vty.EvKey (Vty.KChar 'c')  []  -> browserSetAction Rename "Rename: " True  -- activating the Rename action in the state
      Vty.EvKey (Vty.KChar 'i')  []  -> browserSetAction Touch "Touch: " True    -- activating the Touch action in the state
-     --Vty.EvKey (Vty.KChar 'd')  []  -> browserSetAction Delete "Delete" False   -- activating the Delete action in the state
+     Vty.EvKey (Vty.KChar 'd')  []  -> browserSetAction Delete "Delete" False   -- activating the Delete action in the state
      Vty.EvKey (Vty.KChar 'm')  []  -> browserSetAction SetMark "Setting mark" False
      Vty.EvKey (Vty.KChar 'y')  []  -> browserSetAction Yank "Yank" False
      Vty.EvKey (Vty.KChar '\'') []  -> browserSetAction Mark "Jump to mark" False
@@ -180,8 +186,9 @@ handleBrowserAction e a =  case a of
      _            -> return  
 
 handleDelete :: Vty.Event -> Browser -> EventM Name Browser
-handleDelete  (Vty.EvKey( Vty.KChar 'd') [])  = deleteFiles 
+--handleDelete  (Vty.EvKey( Vty.KChar 'd') [])  = deleteFiles 
 handleDelete  (Vty.EvKey( Vty.KChar 'w') [])  = deleteWindow
+handleDelete  (Vty.EvKey( Vty.KChar 't') [])  = deleteTab
 handleDelete  _                               = return . browserFinishAction ""
 
 -- | Deletes selected files in the focused window.
@@ -214,7 +221,7 @@ deleteFile obj = case obj^.filetype of
                                    else return ()
 
 deleteWindow :: Browser -> EventM Name Browser
-deleteWindow b = return $ b & tabs.~(refreshTabZipper (b^.tabs) t')
+deleteWindow b = return $ browserFinishAction "" b & tabs.~(refreshTabZipper (b^.tabs) t')
         where t = focusedTab b 
               w = focusedWindow b
               tree = t^.renderT
@@ -222,6 +229,14 @@ deleteWindow b = return $ b & tabs.~(refreshTabZipper (b^.tabs) t')
               w'    = getWindow tree'
               ring' = focusSetCurrent (w'^.windowName) (t'^.ring)
               t'    = t & renderT.~tree' & focused.~w' & ring.~ring'
+
+deleteTab :: Browser -> EventM Name Browser
+deleteTab b = return $ browserFinishAction "" b & tabs .~ refreshWsZipper (b^.tabs) wspace'
+        where wspace  = focusedWSpace b
+              wspace' = if emptyp . Z.delete $ wspace 
+                           then wspace
+                           else Z.delete wspace
+              b'      = browserFinishAction "" b
 
 -- | Handler for setting marks. 
 handleSetMark :: Vty.Event -> Browser -> EventM Name Browser
@@ -253,6 +268,14 @@ handleGo (Vty.EvKey( Vty.KChar 'h') []) b =
 handleGo (Vty.EvKey( Vty.KChar '/') []) b = changeWindowDir "/" b
 handleGo _ b = return . browserFinishAction "" $ b
 
+sortObjects :: (Ordering,OrderBy) -> List Name Objects -> [Objects]
+sortObjects (Descending, ByName) name = reverse . sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
+sortObjects (Descending, BySize) name = reverse . sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
+sortObjects (Descending, ByMod ) name = reverse . sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
+sortObjects (_, ByName) name = sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
+sortObjects (_, BySize) name = sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
+sortObjects (_, ByMod ) name = sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
+
 changeWindowDir :: FilePath -> Browser -> EventM Name Browser
 changeWindowDir path b = do 
                 exists <- liftIO $ doesDirectoryExist path
@@ -260,6 +283,8 @@ changeWindowDir path b = do
                 where w  = focusedWindow b
                       b' = do
                        w' <- liftIO $ changeDir path w
+                       let ordObjects =  undefined 
+                       let w'' = undefined
                        b'' <- return $ browserFinishAction "" b
                        replaceFocusedWindow w' b''
 
