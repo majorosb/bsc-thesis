@@ -18,7 +18,7 @@ import System.FilePath.Posix
 import System.Environment
 import Conduit
 import Data.Char
-import Data.List
+import Data.List as DL
 import Data.List.Zipper as Z
 import Data.Vector as V (toList)
 import qualified Data.Map as M
@@ -31,7 +31,7 @@ import Brick.Widgets.Core
 import Brick.Widgets.Center
 import Brick.Focus
 
--- | This is the application's state type. It controls the event flow with action, and inputMode.
+-- | This is the application's state type. It controls the event cycle with action, and inputMode.
 data Browser = 
    Browser { _tabs        :: Zipper(Zipper (Tab)) -- ^ The workspace. Inside each workspace there is a collection of tabs.
            , _browserName :: Name  -- ^ Resource name for Brick
@@ -46,15 +46,15 @@ data Browser =
            , _winCount    :: Int  -- ^ This provides unique names for the Window type.
            , _wspace      :: Int  -- ^ Current workspace
            , _marks       :: M.Map Char FilePath 
-           , _order       :: (Ordering,OrderBy)
+           , _order       :: (Ordering',OrderBy)
            }
 
 -- | The actions that the Browser can make. 
-data Action  = Paste | ConfirmPaste | Rename | Move | Yank | Touch | SetMark | Mark | Delete | Go
+data Action  = Paste | ConfirmPaste | Rename | Move | Yank | Touch | SetMark | Mark | Delete | Go | OrderObj
         deriving (Show, Eq)
 
-data OrderBy = ByName | ByMod | BySize
-data Ordering = Ascending | Descending
+data OrderBy = ByName | BySize
+data Ordering' = Ascending | Descending
 
 
 data Board = Clipboard [Object] | Cutboard [Object] | Empty
@@ -110,7 +110,7 @@ newBrowser rName tab =do
                         ,_winCount = 4
                         ,_wspace   = 1
                         ,_marks = M.empty
-                        ,_order = (Ascending, ByName)
+                        ,_order = (Descending, ByName)
                         }
         where ed = editor (EditName "editor")  (Just 1) ""
               extEditor = do 
@@ -135,12 +135,14 @@ handleBrowserEvent ev b= case b^.action of                  -- if there is an ac
 handleBrowserNormal :: Vty.Event -> Browser -> EventM Name Browser
 handleBrowserNormal ev = case ev of 
      Vty.EvKey (Vty.KChar 'c')  []  -> browserSetAction Rename "Rename: " True  -- activating the Rename action in the state
+     Vty.EvKey (Vty.KChar 'i')  []  -> handleInvert
      Vty.EvKey (Vty.KChar 'i')  []  -> browserSetAction Touch "Touch: " True    -- activating the Touch action in the state
      Vty.EvKey (Vty.KChar 'd')  []  -> browserSetAction Delete "Delete" False   -- activating the Delete action in the state
      Vty.EvKey (Vty.KChar 'm')  []  -> browserSetAction SetMark "Setting mark" False
      Vty.EvKey (Vty.KChar 'y')  []  -> browserSetAction Yank "Yank" False
      Vty.EvKey (Vty.KChar '\'') []  -> browserSetAction Mark "Jump to mark" False
      Vty.EvKey (Vty.KChar 'g')  []  -> browserSetAction Go "Go" False
+     Vty.EvKey (Vty.KChar 'o')  []  -> browserSetAction OrderObj "Order" False
      Vty.EvKey (Vty.KChar 't')  []  -> addNewTab 
      Vty.EvKey (Vty.KChar 'x')  []  -> cutSelectedObjects 
      Vty.EvKey (Vty.KChar 'p')  []  -> handleCopy 
@@ -148,14 +150,16 @@ handleBrowserNormal ev = case ev of
      Vty.EvKey (Vty.KChar 'w')  []  -> moveTabForward 
      Vty.EvKey (Vty.KChar 'W')  []  -> moveWsForward
      Vty.EvKey (Vty.KChar 'B')  []  -> moveWsBackward
-     Vty.EvKey (Vty.KChar 'o')  []  -> handleOrdObjects 
      Vty.EvKey (Vty.KChar 'H')  []  -> handleHSplit 
      Vty.EvKey (Vty.KChar 'V')  []  -> handleVSplit
+     Vty.EvKey (Vty.KChar 'h')  []  -> handleChangeDir ev
+     Vty.EvKey (Vty.KChar 'l')  []  -> handleChangeDir ev
      Vty.EvKey (Vty.KLeft)      []  -> handleShiftFocus Tabs.Left
      Vty.EvKey (Vty.KRight)     []  -> handleShiftFocus Tabs.Right
      Vty.EvKey (Vty.KUp)        []  -> handleShiftFocus Tabs.Up
      Vty.EvKey (Vty.KDown)      []  -> handleShiftFocus Tabs.Down
-     _                              -> handleOtherEvents ev                 
+     _                              -> handleOtherEvents ev
+
 
 -- | This handles the "window" events which mostly are List events
 handleOtherEvents :: Vty.Event -> Browser -> EventM Name Browser
@@ -183,13 +187,56 @@ handleBrowserAction e a =  case a of
      Mark         -> handleJumpMark e
      Delete       -> handleDelete e
      Go           -> handleGo e
+     OrderObj     -> handleOrdObjects e
      _            -> return  
+
+handleChangeDir  :: Vty.Event -> Browser -> EventM Name Browser
+handleChangeDir ev b = handleOtherEvents ev b >>= (\b' -> ordFocusedWindow b')
 
 handleDelete :: Vty.Event -> Browser -> EventM Name Browser
 --handleDelete  (Vty.EvKey( Vty.KChar 'd') [])  = deleteFiles 
 handleDelete  (Vty.EvKey( Vty.KChar 'w') [])  = deleteWindow
 handleDelete  (Vty.EvKey( Vty.KChar 't') [])  = deleteTab
 handleDelete  _                               = return . browserFinishAction ""
+
+handleOrdObjects :: Vty.Event -> Browser -> EventM Name Browser 
+handleOrdObjects (Vty.EvKey( Vty.KChar 'n') []) b = b''
+        where (ad,_) = b^.order
+              b'     = b & order.~(ad,ByName)
+              b''    = ordAllWindow $ browserFinishAction "" b'
+handleOrdObjects (Vty.EvKey( Vty.KChar 's') []) b = b''
+        where (ad,_) = b^.order
+              b'     = b & order.~(ad,BySize)
+              b''    = ordAllWindow $ browserFinishAction "" b'
+
+handleInvert :: Browser -> EventM Name Browser
+handleInvert b = b''
+        where (ordering,ordby) = b^.order
+              newOrd = case ordering of 
+                         Ascending -> Descending
+                         Descending -> Ascending
+              b' = b & order.~(newOrd,ordby)
+              b'' = ordAllWindow b'
+
+ordAllWindow :: Browser -> EventM Name Browser
+ordAllWindow b = return $ b & tabs.~tz'
+        where wspaces = b^.tabs
+              tz' = fmap (\tz ->              -- fmap Zipper (Zipper Tab)
+                      fmap (\t  ->            -- fmap Zipper (Tab)
+                              t & renderT.~
+                                      (fmap (\w  -> w & -- fmap Tree Direction Window
+                                              objects.~(sortObjects (b^.order) (w^.windowName)(w^.objects))) (t^.renderT))
+                                & focused.~ 
+                                        ((t^.focused) & objects.~(sortObjects (b^.order) (t^.focused.windowName)(t^.focused.objects)))
+                           ) tz               -- tz :: Zipper Tab
+                         ) wspaces            -- wspaces :: Zipper (Zipper Tab)
+
+ordFocusedWindow :: Browser -> EventM Name Browser
+ordFocusedWindow b = replaceFocusedWindow w' b
+        where w  = focusedWindow b
+              t  = focusedTab b
+              w' = w & objects.~(sortObjects (b^.order) (w^.windowName)(w^.objects))
+
 
 -- | Deletes selected files in the focused window.
 deleteFiles :: Browser -> EventM Name Browser
@@ -268,13 +315,30 @@ handleGo (Vty.EvKey( Vty.KChar 'h') []) b =
 handleGo (Vty.EvKey( Vty.KChar '/') []) b = changeWindowDir "/" b
 handleGo _ b = return . browserFinishAction "" $ b
 
-sortObjects :: (Ordering,OrderBy) -> List Name Objects -> [Objects]
-sortObjects (Descending, ByName) name = reverse . sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
-sortObjects (Descending, BySize) name = reverse . sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
-sortObjects (Descending, ByMod ) name = reverse . sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
-sortObjects (_, ByName) name = sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
-sortObjects (_, BySize) name = sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
-sortObjects (_, ByMod ) name = sortBy (\n m -> compare (n^.name) (m^.name)) . V.toList . listElements
+getSize :: Object -> Integer
+getSize Object {_info = Nothing}   = 0
+getSize Object {_info = (Just i)}  = i^.size
+
+toLowercase :: String -> String
+toLowercase = fmap (\n -> toLower n) 
+sortPartitions :: (Ordering',OrderBy) -> ([Object], [Object]) -> [Object]
+sortPartitions (Ascending, ByName) (dirs,files)  = 
+       sortBy (\n m -> compare (toLowercase $ n^.name) (toLowercase $ m^.name)) dirs ++
+       sortBy (\n m -> compare (toLowercase $ n^.name) (toLowercase $ m^.name)) files
+sortPartitions (Ascending, BySize) (dirs,files)  =
+       sortBy (\n m -> compare (getSize n) (getSize m)) dirs ++
+       sortBy (\n m -> compare (getSize n) (getSize m)) files
+sortPartitions (Descending, BySize) (dirs,files)  =
+        (DL.reverse $ sortBy (\n m -> compare (getSize n) (getSize m)) dirs) ++
+        (DL.reverse $ sortBy (\n m -> compare (getSize n) (getSize m)) files)
+sortPartitions (Descending,ByName) (dirs,files)  = 
+        (DL.reverse $ sortBy (\n m -> compare (toLowercase $ n^.name) (toLowercase $ m^.name)) dirs) ++
+        (DL.reverse $ sortBy (\n m -> compare (toLowercase $ n^.name) (toLowercase $ m^.name)) files)
+
+sortObjects :: (Ordering',OrderBy) -> Name -> List Name Object -> List Name Object
+sortObjects ordering name' l = list name' newV 1
+         where newV =(V.fromList . sortPartitions ordering
+                    . partition (\n -> n^.filetype == Directory) . V.toList . listElements) $ l
 
 changeWindowDir :: FilePath -> Browser -> EventM Name Browser
 changeWindowDir path b = do 
@@ -283,10 +347,10 @@ changeWindowDir path b = do
                 where w  = focusedWindow b
                       b' = do
                        w' <- liftIO $ changeDir path w
-                       let ordObjects =  undefined 
-                       let w'' = undefined
+                       let ordObjects' = sortObjects (b^.order) (w'^.windowName) (w'^.objects) 
+                       let w'' = w' & objects.~ordObjects'
                        b'' <- return $ browserFinishAction "" b
-                       replaceFocusedWindow w' b''
+                       replaceFocusedWindow w'' b''
 
 -- Rename and Touch -- 
 handleRenameAction :: Vty.Event -> Browser -> EventM Name Browser
@@ -550,13 +614,6 @@ handleBrowserInput ev b =
      inputS :: String
      inputS = concat $ getEditContents $ b^.bEditor
 
-handleOrdObjects :: Browser -> EventM Name Browser 
-handleOrdObjects b = return $ b & tabs.~(refreshTabZipper ts newTab')
-        where w       = focusedWindow b
-              w'      = w & objects.~ordObjects w
-              t       = focusedTab b
-              newTab' = t & focused.~w'
-              ts      = b^.tabs
 
 
 handleTouch :: Browser -> EventM Name Browser
@@ -663,7 +720,6 @@ moveWsBackward b = return $ b & tabs.~z & wspace.~n
                         w = b^.tabs :: Zipper (Zipper Tab)
                         (z,n) = if beginp w then (left (end w),3) 
                                             else (left w, (b^.wspace) - 1) :: ((Zipper (Zipper Tab)),Int)
-          --V.EvKey V.KEnd []   -> M.halt b
 
 handleShiftFocus :: Movement -> Browser -> EventM Name Browser
 handleShiftFocus m b = return $ b & tabs.~t'
@@ -713,9 +769,9 @@ replaceFocusedWindow w b = if w == wFocused then return $ b & tabs.~tz
                                             else return b
         where t = focusedTab b
               wFocused = focusedWindow b
+              tree = replaceInTree w (t^.renderT)
               t' = t & focused.~w & renderT.~tree
               tz = refreshTabZipper (b^.tabs) t'
-              tree = replaceInTree w (t^.renderT)
 
 
 

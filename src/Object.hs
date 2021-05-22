@@ -26,9 +26,9 @@ instance Ord Object where
 instance Show Object where
         show Object{_name = name, _filetype = t, _path = path} =
                 case t of 
-                 File         -> name ++ " " ++ path ++ " " ++show t
-                 Directory    -> name ++ " " ++ path ++ " " ++show t
-                 SymbolicLink -> name ++ " " ++ path ++ " " ++show t
+                 File         -> name ++ " " ++ path ++ " " ++ show t
+                 Directory    -> name ++ " " ++ path ++ " " ++ show t
+                 SymbolicLink -> name ++ " " ++ path ++ " " ++ show t
 
 data Info = Info     { _size       :: Integer,
                        _permission :: Dir.Permissions,
