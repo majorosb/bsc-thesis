@@ -141,9 +141,9 @@ handleChangeDirForward w = case listSelectedElement (w^.objects) of
 
 handleChangeDirBackward ::  Window -> EventM Name Window
 handleChangeDirBackward w = do
-        w' <- liftIO . changeDir ".." $ w
+        w' <- liftIO . changeDir ((w^.currentDir) </> "..") $ w
         let childDir = dropTrailingPathSeparator (w^.currentDir)
-        return $ w' & objects.~(listFindBy (\n -> n^.path == childDir) (w'^.objects))
+        return w' 
  
 selectObject :: Object -> Object
 selectObject object = if object^.isSelected 

@@ -50,7 +50,7 @@ data Browser =
            }
 
 -- | The actions that the Browser can make. 
-data Action  = Paste | ConfirmPaste | Rename | Move | Yank | Touch | SetMark | Mark | Delete | Go | OrderObj
+data Action  = Paste | ConfirmPaste | Rename | RenameObj | RenameTab | Move | Yank | Touch | SetMark | Mark | Delete | Go | OrderObj
         deriving (Show, Eq)
 
 data OrderBy = ByName | BySize
@@ -110,7 +110,7 @@ newBrowser rName tab =do
                         ,_winCount = 4
                         ,_wspace   = 1
                         ,_marks = M.empty
-                        ,_order = (Descending, ByName)
+                        ,_order = (Ascending, ByName)
                         }
         where ed = editor (EditName "editor")  (Just 1) ""
               extEditor = do 
@@ -134,16 +134,16 @@ handleBrowserEvent ev b= case b^.action of                  -- if there is an ac
 -- | The event handler, when there is no action or input.
 handleBrowserNormal :: Vty.Event -> Browser -> EventM Name Browser
 handleBrowserNormal ev = case ev of 
-     Vty.EvKey (Vty.KChar 'c')  []  -> browserSetAction Rename "Rename: " True  -- activating the Rename action in the state
-     Vty.EvKey (Vty.KChar 'i')  []  -> handleInvert
-     Vty.EvKey (Vty.KChar 'i')  []  -> browserSetAction Touch "Touch: " True    -- activating the Touch action in the state
+     Vty.EvKey (Vty.KChar 'c')  []  -> browserSetAction Rename "c " False -- activating the Rename action in the state
+     Vty.EvKey (Vty.KChar 't')  []  -> browserSetAction Touch "Touch: " True    -- activating the Touch action in the state
      Vty.EvKey (Vty.KChar 'd')  []  -> browserSetAction Delete "Delete" False   -- activating the Delete action in the state
      Vty.EvKey (Vty.KChar 'm')  []  -> browserSetAction SetMark "Setting mark" False
      Vty.EvKey (Vty.KChar 'y')  []  -> browserSetAction Yank "Yank" False
      Vty.EvKey (Vty.KChar '\'') []  -> browserSetAction Mark "Jump to mark" False
      Vty.EvKey (Vty.KChar 'g')  []  -> browserSetAction Go "Go" False
      Vty.EvKey (Vty.KChar 'o')  []  -> browserSetAction OrderObj "Order" False
-     Vty.EvKey (Vty.KChar 't')  []  -> addNewTab 
+     Vty.EvKey (Vty.KChar 'i')  []  -> handleInvert
+     Vty.EvKey (Vty.KChar 'n')  []  -> addNewTab 
      Vty.EvKey (Vty.KChar 'x')  []  -> cutSelectedObjects 
      Vty.EvKey (Vty.KChar 'p')  []  -> handleCopy 
      Vty.EvKey (Vty.KChar 'b')  []  -> moveTabBackward 
@@ -178,10 +178,12 @@ handleOtherEvents ev b = do
 -- | Handler for the actions. For every Action value it invokes the corresponding function.
 handleBrowserAction ::  Vty.Event -> Action -> Browser -> EventM Name Browser
 handleBrowserAction e a =  case a of
-     Rename       -> handleWithInput handleRenameAction e 
-     Paste        -> handleCopyAction 
+     Rename       -> handleBrowserRename e
+     RenameObj    -> handleWithInput handleBrowserRenameFile e 
+     RenameTab    -> handleWithInput handleBrowserRenameTab e 
      ConfirmPaste -> handleWithInput handleCopyConfirm e 
      Touch        -> handleWithInput handleTouchAction e 
+     Paste        -> handleCopyAction 
      Yank         -> handleYank e
      SetMark      -> handleSetMark e
      Mark         -> handleJumpMark e
@@ -191,7 +193,7 @@ handleBrowserAction e a =  case a of
      _            -> return  
 
 handleChangeDir  :: Vty.Event -> Browser -> EventM Name Browser
-handleChangeDir ev b = handleOtherEvents ev b >>= (\b' -> ordFocusedWindow b')
+handleChangeDir ev b = handleOtherEvents ev b >>= (\b' -> ordFocusedWindow ev b')
 
 handleDelete :: Vty.Event -> Browser -> EventM Name Browser
 --handleDelete  (Vty.EvKey( Vty.KChar 'd') [])  = deleteFiles 
@@ -231,11 +233,18 @@ ordAllWindow b = return $ b & tabs.~tz'
                            ) tz               -- tz :: Zipper Tab
                          ) wspaces            -- wspaces :: Zipper (Zipper Tab)
 
-ordFocusedWindow :: Browser -> EventM Name Browser
-ordFocusedWindow b = replaceFocusedWindow w' b
+ordFocusedWindow :: Vty.Event -> Browser -> EventM Name Browser
+ordFocusedWindow (Vty.EvKey( Vty.KChar x) []) b = replaceFocusedWindow w' b
         where w  = focusedWindow b
               t  = focusedTab b
-              w' = w & objects.~(sortObjects (b^.order) (w^.windowName)(w^.objects))
+              sorted = sortObjects (b^.order) (w^.windowName) (w^.objects)
+              newObjList = if x == 'h' 
+                              then
+                                    case listSelectedElement (w^.objects) of
+                                     Just (_,e) -> listMoveToElement e sorted
+                                     Nothing -> listMoveTo 0 sorted
+                              else sorted
+              w' = w & objects.~newObjList
 
 
 -- | Deletes selected files in the focused window.
@@ -352,17 +361,6 @@ changeWindowDir path b = do
                        b'' <- return $ browserFinishAction "" b
                        replaceFocusedWindow w'' b''
 
--- Rename and Touch -- 
-handleRenameAction :: Vty.Event -> Browser -> EventM Name Browser
-handleRenameAction _ b = handleBrowserRename b
-
-handleTouchAction :: Vty.Event -> Browser -> EventM Name Browser
-handleTouchAction _  = handleTouch 
-
-browserSetAction :: Action ->  String -> Bool -> Browser -> EventM Name Browser 
-browserSetAction a msg f b= return $ b & action?~a 
-                            & inputMode.~f & statusLine.~msg & input.~"" 
-
 -- | This function is to handle input for events, for example: touch, rename, make dir. 
 handleWithInput :: (Vty.Event -> Browser -> EventM Name Browser) -- ^ The handler function to execute after user input.
                 -> Vty.Event                                   
@@ -370,6 +368,54 @@ handleWithInput :: (Vty.Event -> Browser -> EventM Name Browser) -- ^ The handle
                 -> EventM Name Browser
 handleWithInput f e b = if b^.inputMode then handleBrowserInput e b else f e b
 
+-- Rename and Touch -- 
+handleTouchAction :: Vty.Event -> Browser -> EventM Name Browser
+handleTouchAction _  = handleTouch 
+
+browserSetAction :: Action ->  String -> Bool -> Browser -> EventM Name Browser 
+browserSetAction a msg f b= return $ b & action?~a 
+                            & inputMode.~f & statusLine.~msg & input.~"" 
+
+handleBrowserRename :: Vty.Event -> Browser -> EventM Name Browser 
+handleBrowserRename e@(Vty.EvKey( Vty.KChar 'c') []) b = browserSetAction RenameObj "Rename: " True b
+handleBrowserRename e@(Vty.EvKey( Vty.KChar 't') []) b = browserSetAction RenameTab "Rename tab: " True b
+handleBrowserRename _ b = returnBrowserError "" b
+
+
+handleBrowserRenameFile :: Vty.Event -> Browser -> EventM Name Browser 
+handleBrowserRenameFile _ b = 
+     case oldM of
+         Just old  -> case old^.filetype of 
+                        Directory ->if isValid new && notExists
+                                     then do                             
+                                       liftIO $ renameDirectory (old^.name) new
+                                       let b' = browserFinishAction ("Success new name is: " ++ new) b
+                                       refreshFocusedTab b' 
+                                     else returnBrowserError "Invalid name" b
+                        _         -> if isValid new && notExists
+                                     then do                             
+                                       liftIO $ renameFile (old^.name) new
+                                       let b' = browserFinishAction ("Success new name is: " ++ new) b
+                                       refreshFocusedTab b' 
+                                     else returnBrowserError "Invalid name" b
+         Nothing -> returnBrowserError "Something went wrong while renaming" b
+     where 
+        new = b^.input
+        w   = focusedWindow b
+        objNames = foldr (\n l -> (n^.name) : l) [] (w^.objects)
+        notExists = not $ new `elem` objNames
+        oldM :: Maybe Object
+        oldM = do
+           (_,item) <- listSelectedElement ((focusedWindow b)^.objects)
+           return $ item
+
+handleBrowserRenameTab :: Vty.Event -> Browser -> EventM Name Browser
+handleBrowserRenameTab _ b = return $ b' & tabs.~tz'
+        where b' = browserFinishAction "" b
+              t  = focusedTab b
+              tz = focusedWSpace b
+              t' = t & tabName.~makeNewTabName b 0 (b^.input)  
+              tz' = Z.replace (Z.replace t' tz) (b^.tabs)
 --Copy--
 -- | The main copy handler
 handleCopy :: Browser -> EventM Name Browser
@@ -631,27 +677,6 @@ handleTouch b = if isValid (b^.input)
                 dir  = w^.currentDir
                 b'   = browserFinishAction (b^.input ++ " created with read and write permissions") b
 
-handleBrowserRename :: Browser -> EventM Name Browser 
-handleBrowserRename b= 
-     case oldM of
-         Just old  -> case old^.filetype of 
-                        Directory ->if isValid new
-                                     then do                             
-                                       liftIO $ renameDirectory (old^.name) new
-                                       return $ browserFinishAction ("Success new name is: " ++ new) b
-                                     else returnBrowserError "Invalid name" b
-                        _         -> if isValid new
-                                     then do                             
-                                       liftIO $ renameFile (old^.name) new
-                                       return $ browserFinishAction ("Success new name is: " ++ new) b
-                                     else returnBrowserError "Invalid name" b
-         Nothing -> returnBrowserError "Something went wrong while renaming" b
-     where 
-        new = b^.input
-        oldM :: Maybe Object
-        oldM = do
-           (_,item) <- listSelectedElement ((focusedWindow b)^.objects)
-           return $ item
 
 
 --Tab and window operations--                       
@@ -827,7 +852,11 @@ fromBoard (Cutboard  l) = l
 
 returnBrowserError :: String -> Browser -> EventM Name Browser 
 returnBrowserError e b = return $
-        b & inputMode.~False & statusLine.~e & action.~Nothing & input.~""
+        b & inputMode.~False 
+          & statusLine.~e 
+          & action.~Nothing 
+          & input.~""  
+          & bEditor.~emptyEditor
 
 selectedObjects :: Window -> [Object]
 selectedObjects window = filter (\n -> n^.isSelected) l
