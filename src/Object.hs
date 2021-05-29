@@ -105,7 +105,7 @@ getTimeStampMod :: FilePath -> IO UTCTime
 getTimeStampMod fileName = do
         modTime <- Dir.getModificationTime fileName
         return modTime
-
+-- Attributes
 baseAttr :: A.AttrName
 baseAttr = listAttr <> A.attrName "window"
 
@@ -118,15 +118,6 @@ attrFile = A.attrName "file"
 
 attrDir :: A.AttrName
 attrDir = A.attrName "dir"
-
-tEmpty :: A.AttrName
-tEmpty = A.attrName "tempty"
-
-tFocused :: A.AttrName
-tFocused = A.attrName "tfocused"
-
-attrFill :: A.AttrName
-attrFill = A.attrName "fill"
 
 attrSelected :: A.AttrName
 attrSelected = A.attrName "select"

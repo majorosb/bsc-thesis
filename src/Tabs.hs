@@ -201,23 +201,23 @@ makeList (Node _ t t')       = (makeList t) ++ (makeList t')
 
 
 makeTreeName :: Tree Direction Window -> Tree Direction Name
-makeTreeName t = fmap (\n -> n^.windowName) t
+makeTreeName = fmap (^.windowName) 
 adjList :: Eq a => Tree Direction a -> [[a]]
-adjList l = filter (\n -> n /= []) $ makeListV l
+adjList l = filter (/= []) $ makeListV l
 
 adjList' :: [[a]] -> [([a], [a])]
 adjList' []  = []
 adjList' [x] = [(x,[])]
-adjList' (x:y:xs) = [(x,y)] ++ adjList' xs
+adjList' (x:y:xs) = (x,y) : adjList' xs
 
 neighborsV :: Eq a => Tree Direction a -> [([a],[a])]
-neighborsV = adjList' . filter (\n -> n /= []) . makeListV 
+neighborsV = adjList' . filter (/= []) . makeListV 
 
 neighborsH :: Eq a => Tree Direction a -> [([a],[a])]
-neighborsH = adjList' . filter (\n -> n /= []) . makeListH 
+neighborsH = adjList' . filter (/= []) . makeListH 
 
 neighborsU :: Eq a => Tree Direction a -> [([a],[a])]
-neighborsU = adjList' . filter (\n -> n /= []) . makeListU 
+neighborsU = adjList' . filter (/= []) . makeListU 
 
 goRight :: Eq a => a -> [([a],[a])] -> a
 goRight source []         = source

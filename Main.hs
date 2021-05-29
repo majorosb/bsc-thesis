@@ -18,6 +18,7 @@ import Brick.Util
 import Brick.Themes
 import Object
 import System.Process
+import Data.Maybe
 
 -- | Draws the main UI.
 drawUI :: Browser -> [Widget Name]
@@ -50,7 +51,7 @@ withCheckInputMode :: (Browser -> Object -> IO Browser)
                    -> Browser 
                    -> EventM Name (Next Browser)
 withCheckInputMode f ev b = 
-        if (b^.inputMode) || ((b^.action) /= Nothing)
+        if (b^.inputMode) || (isJust $ (b^.action)) || (isJust $ w^.help )
            -- if there is an action or input happening then just call the Browser's event handler
           then do
             b' <- handleBrowserEvent ev b
@@ -66,7 +67,7 @@ withCheckInputMode f ev b =
 appEvent :: Browser -> BrickEvent Name e -> EventM Name (Next Browser)
 appEvent b (VtyEvent ev) =
         case ev of
-          V.EvKey V.KEnd []   -> M.halt b
+          V.EvKey (V.KChar 'Q') [] -> M.halt b
           V.EvKey (V.KChar 'e') [] -> withCheckInputMode openEditor ev b 
           V.EvKey V.KEnter [] -> withCheckInputMode openFile ev b 
           _ -> do 

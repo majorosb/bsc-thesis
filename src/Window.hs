@@ -30,6 +30,7 @@ data Window =
                                   -- ^ This module provides a scrollable list type and functions for manipulating and rendering it. 
                , _windowName      :: Name
                , _windowException :: Maybe E.IOException
+               , _help            :: Maybe (List Name String)
                } 
         
 makeLenses ''Window
@@ -45,19 +46,19 @@ newWindow resourceName dir = do
              absDir <- makeAbsolute dir
              objectStrings <- getFiles dir
              let brickList = list resourceName (V.fromList . sort $ objectStrings) 1
-             return $ Window absDir brickList resourceName Nothing
+             return $ Window absDir brickList resourceName Nothing Nothing
      else do
              e <- lookupEnv "HOME" 
              case e of
               Nothing -> do 
                objectStrings <- getFiles "/"
                let brickList = list resourceName (V.fromList . sort $ objectStrings) 1
-               return $ Window "/" brickList resourceName Nothing
+               return $ Window "/" brickList resourceName Nothing Nothing
               Just home -> do 
                absDir <- makeAbsolute dir
                objectStrings <- getFiles dir
                let brickList = list resourceName (V.fromList . sort $ objectStrings) 1
-               return $ Window absDir brickList resourceName Nothing
+               return $ Window absDir brickList resourceName Nothing Nothing
 
                   
 
@@ -116,7 +117,9 @@ raiseExceptionInWindow :: Window -> IOError -> IO Window
 raiseExceptionInWindow window e = return $ window & windowException .~ (Just e)
 
 renderWindow :: Bool ->  Window -> Widget Name
-renderWindow b window = vBox [joinBorders $ renderList renderObject b (window^.objects) ]
+renderWindow b window = case window^.help of
+                          Nothing  -> vBox [joinBorders $ renderList renderObject b (window^.objects) ]
+                          Just a   -> vBox [joinBorders $ renderList (\b n -> str $ n) b a]
 
 handleWindowEvent ::  Vty.Event -> Window -> EventM Name Window
 handleWindowEvent event window =  case event of
@@ -126,6 +129,12 @@ handleWindowEvent event window =  case event of
      _                              -> do
          h <- handleListEventVi (handleListEvent) event (window^.objects) -- for characters j k g G
          return $ set (objects) h window
+handleWindowHelpEvent ::  Vty.Event -> Window -> EventM Name Window
+handleWindowHelpEvent event window =  case window^.help of
+     Nothing -> return window
+     Just a  -> do
+         h <- handleListEventVi (handleListEvent) event a -- for characters j k g G
+         return $ window & help ?~ h
 
 handleSelect ::  Window -> EventM Name Window 
 handleSelect w = case listSelectedElement (w^.objects) of 
